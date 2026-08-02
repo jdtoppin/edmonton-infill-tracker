@@ -14,14 +14,17 @@ async function signIn(page: Page) {
 
 test("signs in and shows the permit intelligence overview", async ({ page }) => {
   await signIn(page);
+  const lifecycle = page.getByRole("region", { name: "From first approval to occupancy" });
   await expect(
-    page.getByRole("heading", { name: /from first approval to occupancy/i }),
+    lifecycle.getByRole("heading", { name: "From first approval to occupancy", exact: true }),
   ).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Occupancy granted" })).toBeVisible();
+  await expect(lifecycle.getByRole("heading", { name: "Occupancy granted" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "High-confidence projects" })).toBeVisible();
-  await expect(page.getByText("10524 75 Avenue NW").first()).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: /92 percent confidence 10524 75 Avenue NW/ }),
+  ).toBeVisible();
   await page.getByRole("button", { name: "30 days" }).click();
-  await expect(page.getByText("31", { exact: true })).toBeVisible();
+  await expect(lifecycle.getByText("31", { exact: true })).toBeVisible();
 });
 
 test("protects administration and allows an administrator", async ({ page }) => {
