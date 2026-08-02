@@ -135,6 +135,14 @@ jobs:
       - name: Build production application
         run: npm run build
 
+      - name: Build deployment image
+        run: >-
+          docker build
+          --target runtime
+          --build-arg NEXT_PUBLIC_MAPBOX_TOKEN="$NEXT_PUBLIC_MAPBOX_TOKEN"
+          --tag edmonton-infill-tracker:ci
+          .
+
   e2e:
     name: Playwright smoke
     runs-on: ubuntu-latest
