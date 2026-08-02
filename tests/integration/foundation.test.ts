@@ -17,15 +17,27 @@ describe("self-hosted foundation", () => {
   });
 
   it("keeps the guided Mac install private and non-destructive", async () => {
-    const [installer, operator, backup, bootstrap, packageJson, environmentExample] =
-      await Promise.all([
-        readFile(new URL("../../scripts/install-mac.sh", import.meta.url), "utf8"),
-        readFile(new URL("../../scripts/infill", import.meta.url), "utf8"),
-        readFile(new URL("../../scripts/backup-postgres.sh", import.meta.url), "utf8"),
-        readFile(new URL("../../src/cli/bootstrap-admin.ts", import.meta.url), "utf8"),
-        readFile(new URL("../../package.json", import.meta.url), "utf8"),
-        readFile(new URL("../../.env.example", import.meta.url), "utf8"),
-      ]);
+    const [
+      installer,
+      operator,
+      backup,
+      bootstrap,
+      packageJson,
+      environmentExample,
+      dockerIgnore,
+      viteConfig,
+      continuousIntegration,
+    ] = await Promise.all([
+      readFile(new URL("../../scripts/install-mac.sh", import.meta.url), "utf8"),
+      readFile(new URL("../../scripts/infill", import.meta.url), "utf8"),
+      readFile(new URL("../../scripts/backup-postgres.sh", import.meta.url), "utf8"),
+      readFile(new URL("../../src/cli/bootstrap-admin.ts", import.meta.url), "utf8"),
+      readFile(new URL("../../package.json", import.meta.url), "utf8"),
+      readFile(new URL("../../.env.example", import.meta.url), "utf8"),
+      readFile(new URL("../../.dockerignore", import.meta.url), "utf8"),
+      readFile(new URL("../../vite.config.ts", import.meta.url), "utf8"),
+      readFile(new URL("../../.github/workflows/ci.yml", import.meta.url), "utf8"),
+    ]);
 
     expect(installer).toContain("set_env_value HOST_BIND_ADDRESS 127.0.0.1");
     expect(installer).toContain("set_env_value HTTP_PORT 8080");
@@ -62,5 +74,11 @@ describe("self-hosted foundation", () => {
     expect(bootstrap).not.toContain("prisma:seed");
     expect(environmentExample).toMatch(/^INITIAL_ADMIN_PASSWORD=$/m);
     expect(JSON.parse(packageJson).scripts["admin:bootstrap"]).toContain("bootstrap-admin.ts");
+    expect(viteConfig).toContain('from "./.openai/hosting.json"');
+    expect(dockerIgnore).not.toMatch(/^\.openai$/m);
+    expect(dockerIgnore).toMatch(/^\.openai\/\*$/m);
+    expect(dockerIgnore).toMatch(/^!\.openai\/hosting\.json$/m);
+    expect(continuousIntegration).toContain("docker build");
+    expect(continuousIntegration).toContain("--target runtime");
   });
 });
