@@ -1,0 +1,5 @@
+# Audited literal development-password placeholders from the initial scaffold.
+# Each exception is tied to one historical commit, file, rule, and line; new
+# values and new locations remain blocked.
+877d611866e7ec5e6c6f94675f60d31d39d88a4f:.env.example:generic-api-key:14
+877d611866e7ec5e6c6f94675f60d31d39d88a4f:.env.example:generic-api-key:16
