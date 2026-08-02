@@ -19,6 +19,8 @@ describe("self-hosted foundation", () => {
   it("keeps the guided Mac install private and non-destructive", async () => {
     const [
       installer,
+      portSelector,
+      tailscalePortSelector,
       operator,
       backup,
       bootstrap,
@@ -29,6 +31,8 @@ describe("self-hosted foundation", () => {
       continuousIntegration,
     ] = await Promise.all([
       readFile(new URL("../../scripts/install-mac.sh", import.meta.url), "utf8"),
+      readFile(new URL("../../scripts/select-mac-ports.sh", import.meta.url), "utf8"),
+      readFile(new URL("../../scripts/select-tailscale-serve-port.sh", import.meta.url), "utf8"),
       readFile(new URL("../../scripts/infill", import.meta.url), "utf8"),
       readFile(new URL("../../scripts/backup-postgres.sh", import.meta.url), "utf8"),
       readFile(new URL("../../src/cli/bootstrap-admin.ts", import.meta.url), "utf8"),
@@ -42,12 +46,23 @@ describe("self-hosted foundation", () => {
     expect(installer).toContain("set_env_value HOST_BIND_ADDRESS 127.0.0.1");
     expect(installer).toContain("set_env_value HTTP_PORT 8080");
     expect(installer).toContain("set_env_value HTTPS_PORT 8443");
+    expect(installer).toContain('sh "$script_dir/select-mac-ports.sh"');
+    expect(installer).toContain('set_env_value HTTP_PORT "$selected_http_port"');
+    expect(installer).toContain('set_env_value HTTPS_PORT "$selected_https_port"');
+    expect(portSelector).toContain('-iTCP:"$1"');
+    expect(portSelector).toContain('-iUDP:"$1"');
+    expect(installer).toContain("set_env_value TAILSCALE_SERVE_HTTPS_PORT 443");
+    expect(installer).toContain('set_env_value TAILSCALE_SERVE_MANAGED "$tailscale_serve_managed"');
+    expect(installer).toContain('sh "$script_dir/select-tailscale-serve-port.sh"');
+    expect(tailscalePortSelector).toContain("fallback_start_port=9443");
+    expect(tailscalePortSelector).toContain("following-sibling::*[1][self::dict]");
     expect(installer).toContain("TAILSCALE_BE_CLI=1");
     expect(installer).toContain("/Applications/Tailscale.app/Contents/MacOS/Tailscale");
     expect(installer).toContain("run_tailscale()");
     expect(installer).not.toMatch(/(^|\n)tailscale\(\) \{/);
     expect(installer).toContain("run_tailscale status --json");
-    expect(installer).toContain("serve --bg --yes");
+    expect(installer).toContain('serve --https="$serve_port" --bg --yes');
+    expect(installer).not.toContain("serve reset");
     expect(installer).not.toContain("funnel --bg");
     expect(installer).not.toContain("plutil -lint");
     expect(installer).toContain("plutil -convert json -o /dev/null");
@@ -62,6 +77,9 @@ describe("self-hosted foundation", () => {
     expect(operator).toContain('require_funnel_off "start services"');
     expect(operator).toContain('require_funnel_off "restart services"');
     expect(operator).toContain('require_funnel_off "update"');
+    expect(operator).toContain('require_local_ports_available "start services"');
+    expect(operator).toContain('require_local_ports_available "restart services"');
+    expect(operator).toContain('require_local_ports_available "update"');
     expect(operator).toContain("enabled_funnel_count");
     expect(operator).toContain('operator_lock_dir="$repo_dir/backups/.operator-lock"');
     expect(operator).toContain("validate_civil_date FROM");
@@ -80,5 +98,7 @@ describe("self-hosted foundation", () => {
     expect(dockerIgnore).toMatch(/^!\.openai\/hosting\.json$/m);
     expect(continuousIntegration).toContain("docker build");
     expect(continuousIntegration).toContain("--target runtime");
+    expect(continuousIntegration).toContain("Mac installer safety");
+    expect(continuousIntegration).toContain("runs-on: macos-15");
   });
 });

@@ -79,6 +79,23 @@ validate_private_env() {
     ""|*[!0-9]*) die "HTTP_PORT must be numeric." ;;
   esac
   [ "$http_port" -ge 1 ] && [ "$http_port" -le 65535 ] || die "HTTP_PORT is invalid."
+  https_port=$(env_value HTTPS_PORT)
+  case "$https_port" in
+    ""|*[!0-9]*) die "HTTPS_PORT must be numeric." ;;
+  esac
+  [ "$https_port" -ge 1 ] && [ "$https_port" -le 65535 ] || die "HTTPS_PORT is invalid."
+  [ "$http_port" != "$https_port" ] || die "HTTP_PORT and HTTPS_PORT must be different."
+}
+
+require_local_ports_available() {
+  operation=$1
+  running_caddy_id=$(docker compose ps --status running --quiet caddy 2>/dev/null || true)
+  [ -z "$running_caddy_id" ] || return 0
+
+  selected_ports=$(sh "$script_dir/select-mac-ports.sh" "$http_port" "$https_port") ||
+    die "refusing to $operation because the configured local ports could not be checked. Rerun './scripts/infill install' for an automatic safe selection."
+  [ "$selected_ports" = "$http_port $https_port" ] ||
+    die "refusing to $operation because HTTP_PORT=$http_port or HTTPS_PORT=$https_port is now in use. Rerun './scripts/infill install' to select free loopback ports without changing secrets or data."
 }
 
 find_tailscale() {
@@ -262,6 +279,7 @@ case "$command_name" in
       start)
         [ "$#" -eq 0 ] || die "start takes no arguments."
         require_funnel_off "start services"
+        require_local_ports_available "start services"
         acquire_operator_lock
         docker compose up -d
         ;;
@@ -272,6 +290,7 @@ case "$command_name" in
       restart)
         [ "$#" -eq 0 ] || die "restart takes no arguments."
         require_funnel_off "restart services"
+        require_local_ports_available "restart services"
         acquire_operator_lock
         docker compose restart web worker scheduler caddy
         ;;
@@ -279,6 +298,7 @@ case "$command_name" in
         [ "$#" -eq 0 ] || die "update takes no arguments."
         command -v git >/dev/null 2>&1 || die "Git is unavailable."
         require_funnel_off "update"
+        require_local_ports_available "update"
         acquire_operator_lock
         [ -z "$(git status --porcelain)" ] ||
           die "the repository has local changes; preserve or commit them before updating."

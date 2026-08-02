@@ -43,13 +43,14 @@ The installer performs these steps and stops with an actionable message rather t
 - checks the existing Tailscale configuration and refuses to continue if Funnel is enabled;
 - creates `.env` with mode `0600` only when it is absent, using a generated 64-character database password;
 - prompts invisibly for the initial administrator password, passes it only to the one-time bootstrap container, and never prints or stores it;
-- binds Caddy to `127.0.0.1:8080` and `127.0.0.1:8443`, avoiding privileged host ports;
+- checks both TCP and UDP listeners, starts with `127.0.0.1:8080` and `127.0.0.1:8443`, and automatically selects the next free loopback ports when another local app already uses either one;
 - builds the stack, applies migrations, and creates or promotes only the configured administrator;
-- configures persistent Tailscale Serve to proxy `http://127.0.0.1:8080` and verifies Funnel remains off.
+- inspects existing Tailscale Serve routes, keeps them unchanged, and publishes the tracker on HTTPS `443` when free or a dedicated port starting at `9443` when another app owns `443`;
+- verifies the exact private proxy route and confirms Funnel remains off.
 
 The administrator bootstrap is idempotent. Rerunning the installer promotes/reactivates the same normalized email without replacing its password. If a first install was interrupted after `.env` was saved but before the administrator was created, the rerun detects the missing account and asks for the password again; that recovery password remains ephemeral. `./scripts/infill bootstrap-admin` prompts for a new hidden password and deliberately creates, promotes, or resets that administrator without storing the password in `.env`.
 
-When `.env` already exists, the installer changes only its file permissions to `0600`; it never replaces or rewrites values. It validates `HOST_BIND_ADDRESS=127.0.0.1`, `SITE_ADDRESS=:80`, `AUTH_REQUIRED=true`, the Tailscale-derived `APP_URL`, and a non-placeholder database password before touching containers. Existing Docker containers and named volumes are preserved. Correct rejected values deliberately and rerun.
+When `.env` already exists, the installer preserves its secrets and account settings and changes its file permissions to `0600`. It changes only the local-port or Tailscale URL settings needed to avoid an unavailable port. It validates `HOST_BIND_ADDRESS=127.0.0.1`, `SITE_ADDRESS=:80`, `AUTH_REQUIRED=true`, the Tailscale-derived `APP_URL`, and a non-placeholder database password before touching containers. Existing Docker containers, named volumes, and unrelated Tailscale routes are preserved. A second Caddy container is safe as long as its host ports differ; the installer selects those ports without stopping or changing the other stack.
 
 Never commit `.env`. Keep the administrator password in a password manager. Do not enable Tailscale Funnel: Funnel is public internet exposure, while Serve remains restricted by tailnet grants.
 
@@ -63,7 +64,7 @@ The installer prints the private `https://...ts.net` URL after local health, adm
 
 The production installer never runs `prisma:seed`; that command creates synthetic permits, projects, and a standard user. Use it only in a disposable development environment.
 
-The operator command intentionally exposes a small set of guarded routines. `start`, `restart`, and `update` fail closed unless the Tailscale CLI confirms every background and foreground Funnel configuration is off; an unrecognized Funnel response is also rejected. `stop` remains available even when that check cannot run. `update` creates a verified database backup, refuses a dirty Git checkout, fast-forwards, rebuilds, stops application-facing services, migrates while PostgreSQL stays running, restarts, and checks health. `import` validates real calendar dates, their order, and the dataset argument before queuing the existing worker job.
+The operator command intentionally exposes a small set of guarded routines. `start`, `restart`, and `update` fail closed unless the Tailscale CLI confirms every background and foreground Funnel configuration is off; an unrecognized Funnel response is also rejected. They also verify that a stopped tracker can reclaim its configured local ports and direct the operator back to the guided installer if another app took one. `stop` remains available even when those checks cannot run. `update` creates a verified database backup, refuses a dirty Git checkout, fast-forwards, rebuilds, stops application-facing services, migrates while PostgreSQL stays running, restarts, and checks health. `import` validates real calendar dates, their order, and the dataset argument before queuing the existing worker job.
 
 ```sh
 ./scripts/infill start
