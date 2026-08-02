@@ -29,8 +29,10 @@ CMD ["npm", "run", "dev", "--", "--hostname", "0.0.0.0"]
 FROM dependencies AS builder
 
 ARG NEXT_PUBLIC_MAPBOX_TOKEN=""
+ARG APP_BUILD_SHA="unknown"
 
 ENV DATABASE_URL=postgresql://build:build@127.0.0.1:5432/build?schema=public \
+    APP_BUILD_SHA=${APP_BUILD_SHA} \
     NEXT_PUBLIC_MAPBOX_TOKEN=${NEXT_PUBLIC_MAPBOX_TOKEN}
 
 COPY . .
@@ -42,7 +44,10 @@ RUN rm -rf .next/cache \
 
 FROM base AS runtime
 
-ENV HOSTNAME=0.0.0.0 \
+ARG APP_BUILD_SHA="unknown"
+
+ENV APP_BUILD_SHA=${APP_BUILD_SHA} \
+    HOSTNAME=0.0.0.0 \
     NODE_ENV=production \
     PORT=3000
 

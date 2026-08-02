@@ -351,6 +351,7 @@ validate_existing_env() {
 require_command awk "Install the macOS command-line tools."
 require_command curl "Install the macOS command-line tools."
 require_command docker "Install and start Docker Desktop, then enable its CLI tools."
+require_command git "Install the macOS command-line tools."
 require_command grep "Install the macOS command-line tools."
 require_command lsof "Install the macOS command-line tools."
 require_command mktemp "Install the macOS command-line tools."
@@ -424,7 +425,14 @@ select_tailscale_serve_port "$tailscale_serve_status_file"
 say "Validating the private Docker configuration."
 docker compose config >/dev/null
 say "Building and starting the application. Existing containers and named volumes are preserved."
-docker compose up -d --build
+app_build_sha=$(git rev-parse --verify HEAD 2>/dev/null) ||
+  die "the installed Git revision could not be identified."
+case "$app_build_sha" in
+  ""|*[!0-9a-f]*) die "the installed Git revision is not a full commit SHA." ;;
+esac
+[ "${#app_build_sha}" -eq 40 ] ||
+  die "the installed Git revision is not a full commit SHA."
+APP_BUILD_SHA="$app_build_sha" docker compose up -d --build
 
 attempt=0
 until curl --fail --silent --show-error "http://127.0.0.1:$http_port/api/health" >/dev/null 2>&1; do

@@ -41,11 +41,12 @@ Updated: 2026-08-02
 ## Phase 4 — User interface
 
 - [x] Create the responsive product visual system and dashboard shell.
-- [ ] Connect dashboard metrics and warnings to live records.
-- [ ] Build Mapbox map/list/split exploration with URL-backed filters.
-- [ ] Build sortable/paginated project results and filtered CSV export.
-- [ ] Build project detail, evidence explanation, and source timeline.
-- [ ] Build admin import/review/rules/health workflows.
+- [x] Connect dashboard metrics, lifecycle milestones, import state, and warnings to live records.
+- [x] Build Mapbox map/list/split exploration with URL-backed filters and missing-token/coordinate fallbacks.
+- [x] Build sortable/paginated project results and formula-safe filtered CSV export.
+- [x] Build project detail, evidence explanation, occupancy follow-up, source timeline, and admin-only raw view.
+- [x] Build admin import, failed-record, review/correction, rules-preview, and evidence-backed health workflows.
+- [x] Add real-user navigation, role-aware administration, session-revoking logout, and safe application-update status/handoff.
 
 ## Phase 5 — Alerts
 
@@ -58,8 +59,8 @@ Updated: 2026-08-02
 ## Phase 6 — Production readiness
 
 - [x] Add a guided, loopback-only Mac installer and guarded update/import/backup commands.
-- [ ] Complete ingestion-aware health and data-quality checks.
+- [x] Complete ingestion-aware database, scheduler, job-lease, quarantine, matching, and review health views.
 - [ ] Run security, dependency, and accessibility reviews.
 - [ ] Perform a backup-and-restore drill on the Mac mini.
-- [ ] Validate local-network and Caddy HTTPS deployment.
+- [x] Validate loopback Caddy and private Tailscale HTTPS deployment on the target Mac mini.
 - [ ] Document the first reviewed release and safe update outcome.

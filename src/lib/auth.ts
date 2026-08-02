@@ -1,6 +1,7 @@
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { getDb } from "./db";
+import { safeReturnPath } from "./safe-return-path";
 
 export const SESSION_COOKIE = "infill_session";
 export const SESSION_TTL_SECONDS = 60 * 60 * 24 * 7;
@@ -62,14 +63,4 @@ export async function requireAdmin(returnTo = "/admin"): Promise<AuthenticatedUs
   const user = await requireUser(returnTo);
   if (user.role !== "ADMIN") redirect("/");
   return user;
-}
-
-function safeReturnPath(value: string): string {
-  if (!value.startsWith("/") || value.startsWith("//")) return "/";
-  try {
-    const url = new URL(value, "https://app.local");
-    return url.origin === "https://app.local" ? `${url.pathname}${url.search}` : "/";
-  } catch {
-    return "/";
-  }
 }

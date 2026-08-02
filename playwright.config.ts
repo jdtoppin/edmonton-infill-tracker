@@ -1,5 +1,7 @@
 import { defineConfig, devices } from "@playwright/test";
 
+const adminStorageState = "playwright/.auth/admin.json";
+
 export default defineConfig({
   testDir: "./tests/e2e",
   fullyParallel: true,
@@ -11,7 +13,26 @@ export default defineConfig({
     baseURL: "http://127.0.0.1:3000",
     trace: "on-first-retry",
   },
-  projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
+  projects: [
+    {
+      name: "auth-setup",
+      testMatch: /auth\.setup\.ts/,
+      retries: 0,
+    },
+    {
+      name: "chromium",
+      testIgnore: /auth\.setup\.ts/,
+      use: { ...devices["Desktop Chrome"], storageState: adminStorageState },
+      dependencies: ["auth-setup"],
+    },
+    {
+      name: "mobile-chromium",
+      grep: /@responsive/,
+      testIgnore: /auth\.setup\.ts/,
+      use: { ...devices["Pixel 7"], storageState: adminStorageState },
+      dependencies: ["auth-setup"],
+    },
+  ],
   webServer: {
     command: process.env.CI ? "npm run start" : "npm run dev",
     url: "http://127.0.0.1:3000",
