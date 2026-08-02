@@ -22,7 +22,8 @@ if (!parsed.success) {
   console.error(parsed.error.issues.map((issue) => issue.message).join("\n"));
   process.exitCode = 1;
 } else {
-  const run = await getDb().importRun.create({
+  const db = await getDb();
+  const run = await db.importRun.create({
     data: {
       sourceProvider: "edmonton-open-data",
       mode: ImportMode.BACKFILL,
@@ -32,5 +33,5 @@ if (!parsed.success) {
     },
   });
   console.info(JSON.stringify({ event: "backfill.queued", importRunId: run.id }));
-  await getDb().$disconnect();
+  await db.$disconnect();
 }

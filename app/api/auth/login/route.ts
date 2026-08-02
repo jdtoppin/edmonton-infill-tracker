@@ -39,7 +39,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Enter a valid email and password." }, { status: 400 });
   }
 
-  const db = getDb();
+  const db = await getDb();
   const user = await db.user.findUnique({ where: { normalizedEmail: parsed.data.email } });
   const validPassword = user?.isActive
     ? await compare(parsed.data.password, user.passwordHash)

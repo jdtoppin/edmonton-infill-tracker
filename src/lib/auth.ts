@@ -29,7 +29,8 @@ export async function getCurrentUser(): Promise<AuthenticatedUser | null> {
   if (!token) return null;
 
   const tokenHash = await hashSessionToken(token);
-  const session = await getDb().session.findUnique({
+  const db = await getDb();
+  const session = await db.session.findUnique({
     where: { tokenHash },
     include: { user: true },
   });

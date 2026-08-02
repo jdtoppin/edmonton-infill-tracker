@@ -22,7 +22,7 @@ function waitForWork() {
 }
 
 async function claimNextJob() {
-  const db = getDb();
+  const db = await getDb();
   const pending = await db.jobRun.findFirst({
     where: { status: RunStatus.PENDING },
     orderBy: { createdAt: "asc" },
@@ -38,7 +38,7 @@ async function claimNextJob() {
 }
 
 async function processJob(job: NonNullable<Awaited<ReturnType<typeof claimNextJob>>>) {
-  const db = getDb();
+  const db = await getDb();
   try {
     if (job.jobType !== JobType.DATA_QUALITY_CHECK) {
       throw new Error(`No Phase 1 handler is registered for ${job.jobType}.`);
@@ -72,7 +72,8 @@ async function processJob(job: NonNullable<Awaited<ReturnType<typeof claimNextJo
 }
 
 async function main() {
-  await getDb().$queryRaw`SELECT 1`;
+  const db = await getDb();
+  await db.$queryRaw`SELECT 1`;
   log("info", "worker.ready", { pollMs });
 
   while (!stopping) {
@@ -81,7 +82,7 @@ async function main() {
     else await waitForWork();
   }
 
-  await getDb().$disconnect();
+  await db.$disconnect();
   log("info", "worker.stopped");
 }
 

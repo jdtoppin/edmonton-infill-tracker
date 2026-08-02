@@ -21,7 +21,7 @@ function waitForNextRun() {
 }
 
 async function enqueueDataQualityCheck() {
-  const db = getDb();
+  const db = await getDb();
   const existing = await db.jobRun.findFirst({
     where: {
       jobType: JobType.DATA_QUALITY_CHECK,
@@ -41,7 +41,8 @@ async function enqueueDataQualityCheck() {
 }
 
 async function main() {
-  await getDb().$queryRaw`SELECT 1`;
+  const db = await getDb();
+  await db.$queryRaw`SELECT 1`;
   log("info", "scheduler.ready", { intervalMs });
 
   while (!stopping) {
@@ -49,7 +50,7 @@ async function main() {
     await waitForNextRun();
   }
 
-  await getDb().$disconnect();
+  await db.$disconnect();
   log("info", "scheduler.stopped");
 }
 

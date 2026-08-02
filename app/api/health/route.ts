@@ -6,7 +6,8 @@ export const dynamic = "force-dynamic";
 export async function GET() {
   const checkedAt = new Date().toISOString();
   try {
-    await getDb().$queryRaw`SELECT 1`;
+    const db = await getDb();
+    await db.$queryRaw`SELECT 1`;
     return NextResponse.json({ status: "ok", database: "ready", checkedAt });
   } catch {
     return NextResponse.json(

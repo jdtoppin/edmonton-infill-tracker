@@ -12,7 +12,8 @@ export async function POST(request: Request) {
   const token = (await cookies()).get(SESSION_COOKIE)?.value;
   if (token) {
     const tokenHash = await hashSessionToken(token);
-    await getDb().session.updateMany({
+    const db = await getDb();
+    await db.session.updateMany({
       where: { tokenHash, revokedAt: null },
       data: { revokedAt: new Date() },
     });
