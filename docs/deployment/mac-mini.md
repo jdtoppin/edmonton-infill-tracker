@@ -13,7 +13,7 @@ This is the supported MVP production path. It keeps PostgreSQL on a private Dock
 | `migrate`   | Applies pending Prisma migrations and exits                      | Docker networks only          |
 | `db`        | PostgreSQL 17 with PostGIS                                       | Private database network only |
 
-The application services can reach the internet for Edmonton Open Data and alert delivery. Only application services can reach the database network. There is deliberately no PostgreSQL `ports` entry in `docker-compose.yml`.
+The application services can reach the internet for Edmonton Open Data and alert delivery. Only application services can reach the database network. There is deliberately no PostgreSQL `ports` entry in `docker-compose.yml`. The checked-in `VINEXT_TRUST_PROXY=1` setting is a non-secret description of this topology: it lets the web runtime preserve Caddy's HTTPS scheme for redirects. The `web` service remains Docker-only, Caddy replaces `X-Forwarded-Proto`, and forwarded hostnames are not trusted.
 
 Permit jobs use a database-enforced conflict key plus a renewable worker lease. If the worker is killed, the next worker reclaims the expired job and closes its interrupted import run before retrying; a queued backfill cannot overlap a scheduled import.
 

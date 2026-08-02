@@ -18,6 +18,7 @@ x-app-runtime: &app-runtime
   environment:
     DATABASE_URL: postgresql://${POSTGRES_USER:-infill}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@db:5432/${POSTGRES_DB:-infill}?schema=public
     NODE_ENV: production
+    VINEXT_TRUST_PROXY: "1"
   networks:
     app_egress:
       gw_priority: 1

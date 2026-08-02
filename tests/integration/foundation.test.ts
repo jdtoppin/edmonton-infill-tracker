@@ -20,6 +20,7 @@ describe("self-hosted foundation", () => {
 
     expect(caddyfile).toContain("header_up X-Forwarded-Proto {$UPSTREAM_FORWARDED_PROTO:http}");
     expect(compose).toContain("UPSTREAM_FORWARDED_PROTO: ${UPSTREAM_FORWARDED_PROTO:-http}");
+    expect(compose).toContain('VINEXT_TRUST_PROXY: "1"');
     expect(installer).toContain("set_env_value UPSTREAM_FORWARDED_PROTO https");
     expect(operator).toContain("UPSTREAM_FORWARDED_PROTO");
     expect(environmentExample).toMatch(/^UPSTREAM_FORWARDED_PROTO=http$/m);

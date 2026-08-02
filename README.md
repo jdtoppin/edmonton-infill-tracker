@@ -42,7 +42,7 @@ cd edmonton-infill-tracker
 ./scripts/infill install
 ```
 
-The installer is safe to rerun: Docker named volumes are retained and an existing `.env` is not replaced. Secrets and account settings are preserved; only local-port and private Tailscale URL settings may be reassigned when a conflict is found. If the initial run was interrupted before creating the administrator, the rerun asks for that password again without storing it. It stops if existing hosting settings are not loopback-only or do not match the current tailnet URL. The operator's start, restart, and update commands also refuse to proceed unless every background and foreground Funnel configuration is confirmed off; stop remains available. Use the small operator command afterward:
+The installer is safe to rerun: Docker named volumes are retained and an existing `.env` is not replaced. Secrets and account settings are preserved; only local-port and private Tailscale URL settings may be reassigned when a conflict is found. If the initial run was interrupted before creating the administrator, the rerun asks for that password again without storing it. It stops if existing hosting settings are not loopback-only or do not match the current tailnet URL. The checked-in runtime trusts Caddy's forwarded HTTPS scheme but deliberately ignores forwarded hostnames; no Mini hostname or tailnet identity is stored in the repository. The operator's start, restart, and update commands also refuse to proceed unless every background and foreground Funnel configuration is confirmed off; stop remains available. Use the small operator command afterward:
 
 ```sh
 ./scripts/infill status
