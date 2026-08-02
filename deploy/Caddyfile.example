@@ -1,0 +1,28 @@
+{
+	admin off
+}
+
+# The default listens on HTTP port 80 for private-LAN use. Set SITE_ADDRESS to
+# a public DNS name after its A/AAAA record points at this host; Caddy will then
+# obtain and renew the HTTPS certificate automatically.
+{$SITE_ADDRESS::80} {
+	encode zstd gzip
+
+	reverse_proxy web:3000 {
+		health_uri /api/health
+		health_interval 30s
+		health_timeout 5s
+	}
+
+	header {
+		-Server
+		X-Content-Type-Options nosniff
+		Referrer-Policy strict-origin-when-cross-origin
+		Permissions-Policy "camera=(), microphone=(), geolocation=(self)"
+	}
+
+	log {
+		output stdout
+		format json
+	}
+}

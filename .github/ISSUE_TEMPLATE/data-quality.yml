@@ -1,0 +1,54 @@
+name: Data-quality report
+description: Report an incorrect address, permit grouping, category, confidence score, or neighbourhood.
+title: "data: "
+labels:
+  - data-quality
+body:
+  - type: markdown
+    attributes:
+      value: Permit data is public, but include only the minimum address and permit information needed to investigate. Never include resident or account information.
+
+  - type: dropdown
+    id: problem_type
+    attributes:
+      label: Problem type
+      options:
+        - Address normalization
+        - Duplicate permit event
+        - Incorrect project grouping
+        - Incorrect project category
+        - Incorrect confidence score
+        - Incorrect neighbourhood
+        - Stale or missing source record
+        - Other
+    validations:
+      required: true
+
+  - type: input
+    id: project
+    attributes:
+      label: Project or permit identifier
+      description: Prefer an internal project ID, permit number, or public Edmonton source-record ID over a full address.
+    validations:
+      required: true
+
+  - type: textarea
+    id: observed
+    attributes:
+      label: Observed result
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected result and evidence
+      description: Link to the relevant public City of Edmonton record when possible.
+    validations:
+      required: true
+
+  - type: input
+    id: import_run
+    attributes:
+      label: Import run ID
+      description: Include this if it is visible in the admin import history.

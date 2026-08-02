@@ -1,0 +1,76 @@
+# Repository governance
+
+## Conventional commits
+
+Use this shape for commit subjects and pull-request titles:
+
+```text
+<type>(optional-scope): short imperative description
+```
+
+Keep the subject concise, lowercase after the colon, and free of a trailing period. Explain motivation, tradeoffs, migrations, and operational effects in the body when they are not obvious.
+
+Common types:
+
+| Type       | Use                                    |
+| ---------- | -------------------------------------- |
+| `feat`     | User-visible capability                |
+| `fix`      | Defect correction                      |
+| `data`     | Dataset mapping or data-quality change |
+| `refactor` | Behavior-preserving code change        |
+| `perf`     | Measured performance improvement       |
+| `test`     | Test-only change                       |
+| `docs`     | Documentation-only change              |
+| `build`    | Build system or container change       |
+| `ci`       | GitHub Actions change                  |
+| `chore`    | Maintenance that fits no other type    |
+
+Examples:
+
+```text
+feat(alerts): add daily saved-search digest
+fix(import): preserve records after one row fails validation
+data(classifier): reduce renovation-only confidence
+build(docker): add native Apple Silicon PostGIS image
+```
+
+Use `!` and a `BREAKING CHANGE:` footer only for intentionally incompatible changes. Squash-merge pull requests so the conventional PR title becomes the main-branch commit.
+
+## Recommended branch protection
+
+Protect `main` in GitHub repository settings with a ruleset:
+
+1. Require a pull request before merging and at least one approving review.
+2. Dismiss stale approvals when new commits are pushed.
+3. Require review from code owners after a `CODEOWNERS` file with real maintainers is added.
+4. Require all conversations to be resolved.
+5. Require branches to be up to date before merging.
+6. Require these exact status checks from `.github/workflows/ci.yml`:
+   - `Quality`
+   - `Integration`
+   - `Production build`
+   - `Playwright smoke`
+7. Block force pushes and branch deletion.
+8. Require linear history and allow squash merging.
+9. Apply the rules to administrators, with an emergency bypass restricted to named maintainers and audited.
+10. Require signed commits if every maintainer and approved automation can support them; do not weaken required CI to enable this.
+
+Also enable secret scanning, push protection, Dependabot alerts, and private vulnerability reporting when they are available for the repository plan.
+
+Create the `bug`, `enhancement`, and `data-quality` labels referenced by the issue forms. Triage data-quality reports separately from software defects because upstream public-data errors, normalization problems, and classification-rule errors need different remedies.
+
+## Pull-request expectations
+
+- Keep changes small enough to review and deploy independently.
+- Link an issue and state the observable outcome.
+- Add or update tests for behavior changes.
+- Treat migrations as forward-only production changes; include backup and rollback notes.
+- Show how imports remain idempotent and alerts remain deduplicated when those areas change.
+- Never paste production records, addresses beyond the minimum public evidence, user email addresses, tokens, or `.env` content into issues, commits, screenshots, or CI logs.
+- Require human review for dependency major versions and database image changes. Dependabot groups only minor and patch npm updates automatically.
+
+## Releases and deployment
+
+Tag reviewed main-branch commits using semantic versions once releases begin. CI validates changes but does not deploy them. The Mac mini operator follows the backup-first manual update procedure in [Mac mini deployment](../deployment/mac-mini.md).
+
+A future self-hosted GitHub Actions runner should use a dedicated low-privilege macOS account, a protected GitHub Environment with required approval, and a workflow that can run only from a reviewed tag or manual dispatch. Never expose the Docker socket to pull-request code, and never run untrusted fork workflows on the deployment runner.

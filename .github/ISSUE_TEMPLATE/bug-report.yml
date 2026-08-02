@@ -1,0 +1,72 @@
+name: Bug report
+description: Report a reproducible problem in the tracker.
+title: "fix: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: Thank you for helping improve Edmonton Infill Tracker. Do not include credentials, API tokens, or private data.
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: What happened?
+      description: Describe the problem and what you expected instead.
+      placeholder: A project appears twice after an incremental import.
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Open …
+        2. Filter by …
+        3. Observe …
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Permit import
+        - Classification or matching
+        - Dashboard or projects
+        - Map
+        - Authentication or administration
+        - Alerts
+        - Deployment or operations
+        - Other
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Version or commit
+      description: Paste the deployed Git commit from the application health page or `git rev-parse --short HEAD`.
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Browser, device, operating system, and deployment type. Redact secrets.
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs
+      description: Paste the smallest useful excerpt. Remove addresses, email addresses, secrets, and tokens.
+      render: shell
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Safety check
+      options:
+        - label: I removed secrets and unnecessary personal information from this report.
+          required: true

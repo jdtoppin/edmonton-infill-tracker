@@ -1,0 +1,8 @@
+node_modules
+dist
+.next
+.wrangler
+src/generated/prisma
+coverage
+playwright-report
+test-results

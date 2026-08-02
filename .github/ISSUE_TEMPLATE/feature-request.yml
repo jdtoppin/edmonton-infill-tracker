@@ -1,0 +1,44 @@
+name: Feature request
+description: Propose a focused improvement to the MVP.
+title: "feat: "
+labels:
+  - enhancement
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem to solve
+      description: Explain the user or operational problem, not only the desired implementation.
+    validations:
+      required: true
+
+  - type: textarea
+    id: outcome
+    attributes:
+      label: Desired outcome
+      description: What would a successful, testable result look like?
+    validations:
+      required: true
+
+  - type: dropdown
+    id: users
+    attributes:
+      label: Primary user
+      options:
+        - Home buyer or tracker user
+        - Administrator
+        - Mac mini operator
+        - Developer
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives or workarounds
+
+  - type: textarea
+    id: risks
+    attributes:
+      label: Data, privacy, or operational considerations
+      description: Note effects on classification quality, public-data terms, alerts, security, or deployment.

@@ -1,0 +1,76 @@
+name: edmonton-infill-tracker-dev
+
+x-dev-image: &dev-image
+  image: edmonton-infill-tracker:development
+  build:
+    context: .
+    dockerfile: Dockerfile
+    target: development
+    args:
+      NODE_VERSION: ${NODE_VERSION:-22.23.1}
+  env_file:
+    - path: .env
+      required: true
+  environment:
+    DATABASE_URL: postgresql://${POSTGRES_USER:-infill}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@db:5432/${POSTGRES_DB:-infill}?schema=public
+    NODE_ENV: development
+  volumes:
+    - .:/app
+    - dev_node_modules:/app/node_modules
+    - dev_next_cache:/app/.next
+  networks:
+    - development
+
+services:
+  db:
+    build:
+      context: ./deploy/postgis
+      dockerfile: Dockerfile
+    image: edmonton-infill-postgis:${POSTGIS_IMAGE_TAG:-17.9-3}
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-infill}
+      POSTGRES_USER: ${POSTGRES_USER:-infill}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      POSTGRES_INITDB_ARGS: --auth-host=scram-sha-256
+    ports:
+      - 127.0.0.1:${POSTGRES_PORT:-5432}:5432
+    volumes:
+      - dev_postgres_data:/var/lib/postgresql/data
+    networks:
+      - development
+    shm_size: 256mb
+    restart: unless-stopped
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - pg_isready -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}" && psql -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}" -tAc 'SELECT PostGIS_Version()' >/dev/null
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+  migrate:
+    <<: *dev-image
+    command: ["npm", "run", "prisma:migrate:deploy"]
+    restart: "no"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  web:
+    <<: *dev-image
+    command: ["npm", "run", "dev", "--", "--hostname", "0.0.0.0"]
+    ports:
+      - 127.0.0.1:${DEV_APP_PORT:-3000}:3000
+    init: true
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+networks:
+  development:
+
+volumes:
+  dev_postgres_data:
+  dev_node_modules:
+  dev_next_cache:

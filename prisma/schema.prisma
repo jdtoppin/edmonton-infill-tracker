@@ -1,0 +1,426 @@
+generator client {
+  provider        = "prisma-client"
+  output          = "../src/generated/prisma"
+  previewFeatures = ["postgresqlExtensions"]
+}
+
+datasource db {
+  provider   = "postgresql"
+  extensions = [postgis]
+}
+
+enum UserRole {
+  USER
+  ADMIN
+}
+
+enum ProjectCategory {
+  PROBABLE_NEW_DETACHED_INFILL
+  PROBABLE_NEW_DETACHED_INFILL_FOR_RESALE
+  PROBABLE_SEMI_DETACHED_INFILL
+  PROBABLE_DUPLEX
+  PROBABLE_ROW_HOUSING
+  PROBABLE_GARDEN_SUITE
+  DEMOLITION_ONLY
+  RENOVATION_OR_ADDITION
+  UNCERTAIN_RESIDENTIAL_DEVELOPMENT
+  NOT_RELEVANT
+}
+
+enum ProjectStage {
+  DISCOVERED
+  DEMOLITION
+  DEVELOPMENT_APPLICATION
+  DEVELOPMENT_PERMIT
+  BUILDING_PERMIT
+  CONSTRUCTION
+  INSPECTION
+  COMPLETE
+  CANCELLED
+}
+
+enum ReviewStatus {
+  PENDING
+  CONFIRMED
+  CORRECTED
+  NOT_RELEVANT
+  MERGED
+}
+
+enum MarketListingStatus {
+  NOT_CHECKED
+  NO_MATCH
+  POSSIBLE_MATCH
+  CONFIRMED_MATCH
+}
+
+enum AlertFrequency {
+  IMMEDIATE
+  DAILY
+  WEEKLY
+}
+
+enum AlertType {
+  NEW_PROJECT
+  NEW_PERMIT_EVENT
+  PROJECT_UPDATED
+  PROJECT_STAGE_CHANGED
+}
+
+enum DeliveryStatus {
+  PENDING
+  PROCESSING
+  DELIVERED
+  FAILED
+  SKIPPED
+}
+
+enum ImportMode {
+  INCREMENTAL
+  BACKFILL
+  MANUAL
+}
+
+enum RunStatus {
+  PENDING
+  RUNNING
+  SUCCEEDED
+  PARTIALLY_SUCCEEDED
+  FAILED
+}
+
+enum RawRecordStatus {
+  PENDING
+  PROCESSED
+  SKIPPED
+  FAILED
+}
+
+enum JobType {
+  INCREMENTAL_PERMIT_IMPORT
+  PROJECT_MATCHING
+  PROJECT_RECLASSIFICATION
+  ALERT_GENERATION
+  DAILY_ALERT_DELIVERY
+  DATA_QUALITY_CHECK
+}
+
+model User {
+  id              String   @id @default(cuid())
+  email           String
+  normalizedEmail String   @unique
+  name            String?
+  passwordHash    String
+  role            UserRole @default(USER)
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt       DateTime @updatedAt @db.Timestamptz(3)
+
+  sessions         Session[]
+  savedSearches    SavedSearch[]
+  alertEvents      AlertEvent[]
+  reviewedProjects Project[]     @relation("ProjectReviewer")
+}
+
+model Session {
+  id         String    @id @default(cuid())
+  tokenHash  String    @unique
+  userId     String
+  expiresAt  DateTime  @db.Timestamptz(3)
+  lastSeenAt DateTime? @db.Timestamptz(3)
+  revokedAt  DateTime? @db.Timestamptz(3)
+  createdAt  DateTime  @default(now()) @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@index([userId, revokedAt])
+}
+
+model Neighbourhood {
+  id                  String                                       @id @default(cuid())
+  cityNeighbourhoodId String                                       @unique
+  name                String
+  boundary            Unsupported("geometry(MultiPolygon, 4326)")?
+  isMonitoringActive  Boolean                                      @default(false)
+  createdAt           DateTime                                     @default(now()) @db.Timestamptz(3)
+  updatedAt           DateTime                                     @updatedAt @db.Timestamptz(3)
+
+  addresses        Address[]
+  permitEvents     PermitEvent[]
+  projects         Project[]
+  savedSearchLinks SavedSearchNeighbourhood[]
+
+  @@index([name])
+  @@index([isMonitoringActive])
+}
+
+model Address {
+  id                      String                                @id @default(cuid())
+  rawSourceAddress        String
+  normalizedStreetAddress String
+  normalizedAddressKey    String                                @unique
+  unitNumber              String?
+  city                    String                                @default("Edmonton")
+  province                String                                @default("AB")
+  postalCode              String?
+  latitude                Decimal?                              @db.Decimal(9, 6)
+  longitude               Decimal?                              @db.Decimal(9, 6)
+  location                Unsupported("geometry(Point, 4326)")?
+  geocodingConfidence     Decimal?                              @db.Decimal(4, 3)
+  neighbourhoodId         String?
+  createdAt               DateTime                              @default(now()) @db.Timestamptz(3)
+  updatedAt               DateTime                              @updatedAt @db.Timestamptz(3)
+
+  neighbourhood Neighbourhood? @relation(fields: [neighbourhoodId], references: [id], onDelete: SetNull)
+  permitEvents  PermitEvent[]
+  projects      Project[]
+
+  @@index([neighbourhoodId])
+  @@index([normalizedStreetAddress])
+  @@index([latitude, longitude])
+}
+
+model ImportRun {
+  id             String     @id @default(cuid())
+  sourceProvider String
+  mode           ImportMode
+  status         RunStatus  @default(PENDING)
+  requestedFrom  DateTime?  @db.Timestamptz(3)
+  requestedTo    DateTime?  @db.Timestamptz(3)
+  startCursor    String?
+  endCursor      String?
+  recordsFetched Int        @default(0)
+  recordsCreated Int        @default(0)
+  recordsUpdated Int        @default(0)
+  recordsSkipped Int        @default(0)
+  recordsFailed  Int        @default(0)
+  startedAt      DateTime?  @db.Timestamptz(3)
+  completedAt    DateTime?  @db.Timestamptz(3)
+  errorSummary   String?
+  createdAt      DateTime   @default(now()) @db.Timestamptz(3)
+  updatedAt      DateTime   @updatedAt @db.Timestamptz(3)
+
+  rawRecords RawPermitRecord[]
+  failures   ImportFailure[]
+
+  @@index([sourceProvider, createdAt])
+  @@index([status, createdAt])
+}
+
+model RawPermitRecord {
+  id                     String          @id @default(cuid())
+  sourceProvider         String
+  sourceRecordIdentifier String
+  payload                Json
+  payloadChecksum        String
+  sourceUpdatedAt        DateTime?       @db.Timestamptz(3)
+  processingStatus       RawRecordStatus @default(PENDING)
+  processingError        String?
+  firstImportedAt        DateTime        @default(now()) @db.Timestamptz(3)
+  lastImportedAt         DateTime        @default(now()) @db.Timestamptz(3)
+  importRunId            String?
+  createdAt              DateTime        @default(now()) @db.Timestamptz(3)
+  updatedAt              DateTime        @updatedAt @db.Timestamptz(3)
+
+  importRun   ImportRun?   @relation(fields: [importRunId], references: [id], onDelete: SetNull)
+  permitEvent PermitEvent?
+
+  @@unique([sourceProvider, sourceRecordIdentifier])
+  @@index([importRunId])
+  @@index([processingStatus, lastImportedAt])
+}
+
+model ImportFailure {
+  id                     String   @id @default(cuid())
+  importRunId            String
+  sourceRecordIdentifier String
+  errorCode              String?
+  errorMessage           String
+  rawPayload             Json?
+  createdAt              DateTime @default(now()) @db.Timestamptz(3)
+
+  importRun ImportRun @relation(fields: [importRunId], references: [id], onDelete: Cascade)
+
+  @@unique([importRunId, sourceRecordIdentifier])
+  @@index([createdAt])
+}
+
+model PermitEvent {
+  id                     String    @id @default(cuid())
+  sourceProvider         String
+  sourceRecordIdentifier String
+  permitNumber           String?
+  permitType             String
+  permitSubtype          String?
+  applicationDate        DateTime? @db.Date
+  issueDate              DateTime? @db.Date
+  status                 String?
+  workDescription        String?
+  buildingType           String?
+  constructionValue      Decimal?  @db.Decimal(15, 2)
+  unitsAdded             Int?
+  addressId              String
+  neighbourhoodId        String
+  rawRecordId            String?   @unique
+  rawSourcePayload       Json
+  importedAt             DateTime  @default(now()) @db.Timestamptz(3)
+  sourceUpdatedAt        DateTime? @db.Timestamptz(3)
+  createdAt              DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt              DateTime  @updatedAt @db.Timestamptz(3)
+
+  address       Address          @relation(fields: [addressId], references: [id], onDelete: Restrict)
+  neighbourhood Neighbourhood    @relation(fields: [neighbourhoodId], references: [id], onDelete: Restrict)
+  rawRecord     RawPermitRecord? @relation(fields: [rawRecordId], references: [id], onDelete: SetNull)
+  projectEvent  ProjectEvent?
+  alertEvents   AlertEvent[]
+
+  @@unique([sourceProvider, sourceRecordIdentifier])
+  @@index([permitNumber])
+  @@index([addressId])
+  @@index([neighbourhoodId, issueDate])
+  @@index([applicationDate])
+  @@index([sourceUpdatedAt])
+}
+
+model Project {
+  id                         String              @id @default(cuid())
+  projectKey                 String              @unique
+  addressId                  String
+  neighbourhoodId            String
+  title                      String
+  category                   ProjectCategory
+  currentStage               ProjectStage
+  earliestEventDate          DateTime?           @db.Date
+  latestEventDate            DateTime?           @db.Date
+  estimatedUnits             Int?
+  estimatedConstructionValue Decimal?            @db.Decimal(15, 2)
+  marketListingStatus        MarketListingStatus @default(NOT_CHECKED)
+  marketComparison           Json?
+  marketLastCheckedAt        DateTime?           @db.Timestamptz(3)
+  infillConfidence           Int                 @default(0)
+  confidenceExplanation      Json
+  reviewStatus               ReviewStatus        @default(PENDING)
+  reviewedById               String?
+  reviewedAt                 DateTime?           @db.Timestamptz(3)
+  reviewNotes                String?
+  mergedIntoId               String?
+  createdAt                  DateTime            @default(now()) @db.Timestamptz(3)
+  updatedAt                  DateTime            @updatedAt @db.Timestamptz(3)
+
+  address        Address        @relation(fields: [addressId], references: [id], onDelete: Restrict)
+  neighbourhood  Neighbourhood  @relation(fields: [neighbourhoodId], references: [id], onDelete: Restrict)
+  reviewedBy     User?          @relation("ProjectReviewer", fields: [reviewedById], references: [id], onDelete: SetNull)
+  mergedInto     Project?       @relation("ProjectMerge", fields: [mergedIntoId], references: [id], onDelete: SetNull)
+  mergedProjects Project[]      @relation("ProjectMerge")
+  events         ProjectEvent[]
+  alertEvents    AlertEvent[]
+
+  @@index([addressId, latestEventDate])
+  @@index([neighbourhoodId, latestEventDate])
+  @@index([category, latestEventDate])
+  @@index([currentStage, latestEventDate])
+  @@index([infillConfidence, latestEventDate])
+  @@index([reviewStatus])
+  @@index([mergedIntoId])
+}
+
+model ProjectEvent {
+  id            String   @id @default(cuid())
+  projectId     String
+  permitEventId String   @unique
+  eventDate     DateTime @db.Date
+  linkedAt      DateTime @default(now()) @db.Timestamptz(3)
+  matchReason   Json?
+
+  project     Project     @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  permitEvent PermitEvent @relation(fields: [permitEventId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, permitEventId])
+  @@index([projectId, eventDate])
+}
+
+model SavedSearch {
+  id                   String            @id @default(cuid())
+  userId               String
+  name                 String
+  projectCategories    ProjectCategory[] @default([])
+  minConstructionValue Decimal?          @db.Decimal(15, 2)
+  maxConstructionValue Decimal?          @db.Decimal(15, 2)
+  minUnits             Int?
+  maxUnits             Int?
+  minConfidenceScore   Int?
+  permitStatuses       String[]          @default([])
+  projectStages        ProjectStage[]    @default([])
+  alertFrequency       AlertFrequency    @default(DAILY)
+  isActive             Boolean           @default(true)
+  createdAt            DateTime          @default(now()) @db.Timestamptz(3)
+  updatedAt            DateTime          @updatedAt @db.Timestamptz(3)
+
+  user           User                       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  neighbourhoods SavedSearchNeighbourhood[]
+  alertEvents    AlertEvent[]
+
+  @@unique([userId, name])
+  @@index([userId, isActive])
+}
+
+model SavedSearchNeighbourhood {
+  savedSearchId   String
+  neighbourhoodId String
+  createdAt       DateTime @default(now()) @db.Timestamptz(3)
+
+  savedSearch   SavedSearch   @relation(fields: [savedSearchId], references: [id], onDelete: Cascade)
+  neighbourhood Neighbourhood @relation(fields: [neighbourhoodId], references: [id], onDelete: Cascade)
+
+  @@id([savedSearchId, neighbourhoodId])
+  @@index([neighbourhoodId])
+}
+
+model AlertEvent {
+  id                      String         @id @default(cuid())
+  idempotencyKey          String         @unique
+  userId                  String
+  savedSearchId           String?
+  projectId               String
+  triggeringPermitEventId String
+  alertType               AlertType
+  deliveryStatus          DeliveryStatus @default(PENDING)
+  deliveredAt             DateTime?      @db.Timestamptz(3)
+  errorMessage            String?
+  deliveryAttempts        Int            @default(0)
+  createdAt               DateTime       @default(now()) @db.Timestamptz(3)
+  updatedAt               DateTime       @updatedAt @db.Timestamptz(3)
+
+  user                  User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  savedSearch           SavedSearch? @relation(fields: [savedSearchId], references: [id], onDelete: SetNull)
+  project               Project      @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  triggeringPermitEvent PermitEvent  @relation(fields: [triggeringPermitEventId], references: [id], onDelete: Restrict)
+
+  // One permit event can match several searches, but a user should receive it only once.
+  @@unique([userId, triggeringPermitEventId])
+  @@index([savedSearchId])
+  @@index([projectId, createdAt])
+  @@index([deliveryStatus, createdAt])
+}
+
+model JobRun {
+  id              String    @id @default(cuid())
+  jobType         JobType
+  status          RunStatus @default(PENDING)
+  // A running worker holds a non-null unique key and clears it when it finishes.
+  lockKey         String?   @unique
+  processedCount  Int       @default(0)
+  successfulCount Int       @default(0)
+  failedCount     Int       @default(0)
+  startedAt       DateTime? @db.Timestamptz(3)
+  completedAt     DateTime? @db.Timestamptz(3)
+  errorSummary    String?
+  metadata        Json?
+  createdAt       DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt       DateTime  @updatedAt @db.Timestamptz(3)
+
+  @@index([jobType, createdAt])
+  @@index([status, createdAt])
+}
