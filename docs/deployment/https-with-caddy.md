@@ -1,6 +1,6 @@
 # HTTPS with Caddy
 
-The tracked `deploy/Caddyfile.example` is the configuration mounted by Compose. Its default `SITE_ADDRESS=:80` is intended for private-LAN HTTP. Configuration changes are normally made with environment variables so Git updates do not conflict with a locally edited proxy file.
+The tracked `deploy/Caddyfile.example` is the configuration mounted by Compose. Its default `SITE_ADDRESS=:80` is intended for private-LAN HTTP. Configuration changes are normally made with environment variables so Git updates do not conflict with a locally edited proxy file. The application trusts the forwarded scheme because Caddy overwrites `X-Forwarded-Proto`; it does not trust `X-Forwarded-Host`.
 
 ## Public domain
 
@@ -31,4 +31,4 @@ Validate a modified configuration inside the running image before applying it:
 docker compose run --rm --no-deps caddy validate --config /etc/caddy/Caddyfile
 ```
 
-Then recreate the proxy and check logs. The application, not Caddy alone, remains responsible for authentication, role checks, input validation, CSRF protection, and rate limiting.
+Then recreate the proxy and check logs. Never publish the `web` service's port `3000`, and do not change Caddy to pass through a caller-supplied `X-Forwarded-Proto`; the application's proxy trust relies on that private, sanitizing boundary. The application, not Caddy alone, remains responsible for authentication, role checks, input validation, CSRF protection, and rate limiting.
