@@ -91,7 +91,7 @@ find_tailscale() {
   fi
 }
 
-tailscale() {
+run_tailscale() {
   TAILSCALE_BE_CLI=1 "$tailscale_bin" "$@"
 }
 
@@ -104,7 +104,7 @@ inspect_funnel() {
     funnel_error="Tailscale CLI is unavailable."
     return 2
   fi
-  if ! funnel_json=$(tailscale funnel status --json 2>/dev/null); then
+  if ! funnel_json=$(run_tailscale funnel status --json 2>/dev/null); then
     funnel_error="Tailscale Funnel status could not be verified."
     return 2
   fi
@@ -209,7 +209,7 @@ show_status() {
   fi
 
   if find_tailscale; then
-    serve_status=$(tailscale serve status 2>&1) || {
+    serve_status=$(run_tailscale serve status 2>&1) || {
       printf '%s\n' "$serve_status" >&2
       result=1
       serve_status=""
