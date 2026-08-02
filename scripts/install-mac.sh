@@ -296,8 +296,23 @@ configure_new_env() {
 }
 
 validate_existing_env() {
-  say "Keeping the existing .env secrets and account settings. Only private hosting settings needed for a safe Tailscale route may be adjusted."
+  say "Keeping the existing .env secrets and account settings. Only private hosting settings and the legacy shipped scheduler interval may be adjusted."
   chmod 0600 "$env_file"
+
+  scheduler_interval=$(env_value SCHEDULER_INTERVAL_MS)
+  case "$scheduler_interval" in
+    ""|3600000)
+      say "Setting the scheduler to the restart-safe daily default."
+      set_env_value SCHEDULER_INTERVAL_MS 86400000
+      ;;
+    *[!0-9]*)
+      die "existing SCHEDULER_INTERVAL_MS must be a whole number of milliseconds."
+      ;;
+    *)
+      [ "$scheduler_interval" -ge 3600000 ] && [ "$scheduler_interval" -le 31536000000 ] ||
+        die "existing SCHEDULER_INTERVAL_MS must be between 3600000 (one hour) and 31536000000 (one year)."
+      ;;
+  esac
 
   [ "$(env_value HOST_BIND_ADDRESS)" = "127.0.0.1" ] ||
     die "existing .env must set HOST_BIND_ADDRESS=127.0.0.1. The installer will not overwrite it."

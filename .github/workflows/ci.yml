@@ -140,6 +140,8 @@ jobs:
     name: Integration
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    env:
+      ALLOW_DATABASE_INTEGRATION_TESTS: "true"
     services:
       postgres:
         image: postgis/postgis:17-3.5
