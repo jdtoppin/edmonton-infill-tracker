@@ -50,23 +50,30 @@ test("@responsive filters projects and opens a normalized permit timeline", asyn
   await expect(projectLink).toBeVisible();
   await projectLink.click();
   await expect(page.getByRole("heading", { name: "Permit timeline" })).toBeVisible();
-  await expect(page.getByText(/confidence/i).first()).toBeVisible();
+  await expect(page.getByRole("heading", { name: /\d+% confidence/ })).toBeVisible();
 });
 
 test("exports the authenticated filtered project set as CSV", async ({ page }) => {
-  const response = await page.request.get("/api/projects/export?q=99901");
-  expect(response.ok()).toBeTruthy();
-  expect(response.headers()["content-type"]).toContain("text/csv");
-  const csv = await response.text();
-  expect(csv).toContain("Address,Neighbourhood,Category");
-  expect(csv).toContain("99901 127 ST NW");
-  expect(csv).not.toContain("rawSourcePayload");
+  await page.goto("/");
+  const result = await page.evaluate(async () => {
+    const response = await fetch("/api/projects/export?q=99901");
+    return {
+      status: response.status,
+      contentType: response.headers.get("content-type"),
+      csv: await response.text(),
+    };
+  });
+  expect(result.status).toBe(200);
+  expect(result.contentType).toContain("text/csv");
+  expect(result.csv).toContain("Address,Neighbourhood,Category");
+  expect(result.csv).toContain("99901 127 ST NW");
+  expect(result.csv).not.toContain("rawSourcePayload");
 });
 
 test("protects administration, exposes update handoff, and fully revokes logout", async ({
   browser,
 }) => {
-  const context = await browser.newContext();
+  const context = await browser.newContext({ storageState: { cookies: [], origins: [] } });
   const page = await context.newPage();
   await page.goto("/admin");
   await expect(page).toHaveURL(/\/login\?returnTo=/);
