@@ -125,6 +125,7 @@ const projectDetailSelect = {
         select: {
           id: true,
           sourceProvider: true,
+          sourceDataset: true,
           sourceRecordIdentifier: true,
           permitNumber: true,
           permitType: true,
@@ -631,26 +632,44 @@ function ago(now: Date, days: DashboardPeriod): Date {
   return new Date(now.getTime() - days * dayMilliseconds);
 }
 
-async function lifecycleCounts(db: PrismaClient, since: Date): Promise<LifecycleCounts> {
+function edmontonCivilDate(now: Date, daysBefore = 0): Date {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Edmonton",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(now);
+  const value = Object.fromEntries(parts.map(({ type, value: part }) => [type, part]));
+  return new Date(
+    Date.UTC(Number(value.year), Number(value.month) - 1, Number(value.day) - daysBefore),
+  );
+}
+
+async function lifecycleCounts(
+  db: PrismaClient,
+  since: Date,
+  through: Date,
+): Promise<LifecycleCounts> {
   const linkedToPublicProject = { project: publicBaseWhere };
   const [development, building, occupancy] = await Promise.all([
     db.permitEvent.count({
       where: {
-        issueDate: { gte: since },
-        permitType: { contains: "development", mode: "insensitive" },
+        sourceDataset: "development",
+        issueDate: { gte: since, lte: through },
         projectEvent: linkedToPublicProject,
       },
     }),
     db.permitEvent.count({
       where: {
-        issueDate: { gte: since },
-        permitType: { contains: "building", mode: "insensitive" },
+        sourceDataset: "building",
+        issueDate: { gte: since, lte: through },
         projectEvent: linkedToPublicProject,
       },
     }),
     db.permitEvent.count({
       where: {
-        occupancyGrantedDate: { gte: since },
+        sourceDataset: "building",
+        occupancyGrantedDate: { gte: since, lte: through },
         projectEvent: linkedToPublicProject,
       },
     }),
@@ -696,6 +715,7 @@ export async function getDashboardOverview(
   now = new Date(),
 ): Promise<DashboardOverview> {
   const periods = [7, 30, 90] as const;
+  const today = edmontonCivilDate(now);
   const [
     newProjectValues,
     lifecycleValues,
@@ -714,7 +734,9 @@ export async function getDashboardOverview(
         db.project.count({ where: { ...publicBaseWhere, createdAt: { gte: ago(now, period) } } }),
       ),
     ),
-    Promise.all(periods.map((period) => lifecycleCounts(db, ago(now, period)))),
+    Promise.all(
+      periods.map((period) => lifecycleCounts(db, edmontonCivilDate(now, period - 1), today)),
+    ),
     db.project.groupBy({ by: ["category"], where: publicBaseWhere, _count: { _all: true } }),
     db.project.groupBy({ by: ["neighbourhoodId"], where: publicBaseWhere, _count: { _all: true } }),
     db.project.findMany({

@@ -24,6 +24,7 @@ export type ProjectMilestoneType =
 
 export interface TimelinePermitEvent {
   id: string;
+  sourceDataset?: string | null;
   permitType?: string | null;
   permitSubtype?: string | null;
   status?: string | null;
@@ -72,6 +73,12 @@ function issuedMilestone(event: TimelinePermitEvent): {
   }
   if (/\b(?:demolition|demolish)\b/.test(text)) {
     return { type: "DEMOLITION", stage: PROJECT_STAGE.demolition };
+  }
+  if (event.sourceDataset === "development") {
+    return { type: "DEVELOPMENT_PERMIT", stage: PROJECT_STAGE.developmentPermit };
+  }
+  if (event.sourceDataset === "building") {
+    return { type: "BUILDING_PERMIT", stage: PROJECT_STAGE.buildingPermit };
   }
   if (/\bdevelopment\b/.test(text)) {
     return { type: "DEVELOPMENT_PERMIT", stage: PROJECT_STAGE.developmentPermit };

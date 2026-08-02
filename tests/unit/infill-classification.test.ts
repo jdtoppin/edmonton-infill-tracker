@@ -58,6 +58,48 @@ describe("rule-based infill classification and confidence scoring", () => {
     );
   });
 
+  it("uses dataset provenance to recognize Edmonton permit families with non-generic labels", () => {
+    const result = classifyInfillProject({
+      events: [
+        {
+          sourceDataset: "development",
+          permitType: "Residential",
+          permitSubtype: "New",
+          workDescription: "Construct a new semi-detached dwelling",
+          buildingType: "Semi-detached residential",
+        },
+        {
+          sourceDataset: "building",
+          permitType: "Single, Semi-detached & Rowhousing",
+          permitSubtype: "New",
+          workDescription: "Construct a new semi-detached dwelling",
+          buildingType: "Semi-detached residential",
+        },
+      ],
+    });
+
+    expect(result.category).toBe(INFILL_PROJECT_CATEGORY.probableSemiDetachedInfill);
+    expect(result.scoreExplanation).toContainEqual(
+      expect.objectContaining({ rule: "developmentAndBuildingPermit", points: 15 }),
+    );
+  });
+
+  it("does not treat Edmonton's combined job category as the specific housing form", () => {
+    const result = classifyInfillProject({
+      events: [
+        {
+          sourceDataset: "building",
+          permitType: "Single, Semi-detached & Rowhousing",
+          permitSubtype: "(01) Building - New",
+          workDescription: "Construct a new single detached dwelling.",
+          buildingType: "Single Detached House",
+        },
+      ],
+    });
+
+    expect(result.category).toBe(INFILL_PROJECT_CATEGORY.probableNewDetachedInfill);
+  });
+
   it("classifies supported residential forms", () => {
     const cases = [
       ["Construct a new duplex dwelling", INFILL_PROJECT_CATEGORY.probableDuplex],

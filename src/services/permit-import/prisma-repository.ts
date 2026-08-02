@@ -231,6 +231,7 @@ export class PrismaPermitImportRepository implements PermitImportRepository {
       });
 
       const permitData = {
+        sourceDataset: input.permit.sourceDataset,
         permitNumber: input.permit.permitNumber,
         permitType: input.permit.permitType,
         permitSubtype: input.permit.permitSubtype,

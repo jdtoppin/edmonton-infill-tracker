@@ -168,7 +168,7 @@ export function OverviewDashboard({ data }: { data: DashboardOverview }) {
                 {value}
               </strong>
               <p className="mb-0 text-xs leading-5 text-[var(--muted)]">
-                City-recorded milestones in this period.
+                City-recorded milestones linked to tracked infill projects.
               </p>
             </Card>
           ))}

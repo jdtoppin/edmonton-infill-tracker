@@ -147,6 +147,7 @@ describe.skipIf(!hasDatabase)("permit import persistence", () => {
         },
       },
     });
+    expect(stored.sourceDataset).toBe("building");
     expect(stored.occupancyGrantedDate?.toISOString()).toBe("2026-07-30T00:00:00.000Z");
 
     const unchanged = await runPermitImport({
