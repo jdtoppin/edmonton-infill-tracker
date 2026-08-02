@@ -33,6 +33,87 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+
+      - name: Reject personal email addresses in pull-request commits
+        if: github.event_name == 'pull_request'
+        shell: bash
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          case "$BASE_SHA:$HEAD_SHA" in
+            ""|*[!0-9a-f:]*)
+              echo "GitHub supplied an invalid commit range." >&2
+              exit 1
+              ;;
+          esac
+          git cat-file -e "$BASE_SHA^{commit}"
+          git cat-file -e "$HEAD_SHA^{commit}"
+          commit_email_file="$RUNNER_TEMP/commit-emails.tsv"
+          git log --format='%H%x09%ae%x09%ce' "$BASE_SHA..$HEAD_SHA" > "$commit_email_file"
+          invalid_email=0
+          while IFS=$'\t' read -r commit_sha author_email committer_email; do
+            for commit_email in "$author_email" "$committer_email"; do
+              case "$commit_email" in
+                *@users.noreply.github.com|noreply@github.com|noreply@openai.com) ;;
+                *)
+                  echo "::error title=Personal email in commit metadata::Commit $commit_sha uses a non-noreply author or committer address. Configure your GitHub noreply address and amend the commit."
+                  invalid_email=1
+                  ;;
+              esac
+            done
+          done < "$commit_email_file"
+          [ "$invalid_email" -eq 0 ]
+
+      - name: Reject tracked credential and private-state files
+        shell: bash
+        run: |
+          set -euo pipefail
+          sensitive_file_found=0
+          while IFS= read -r -d '' tracked_path; do
+            case "$tracked_path" in
+              .env.example) ;;
+              .env|.env.*|*/.env|*/.env.*|.npmrc|*/.npmrc|.aws/*|*/.aws/*|.ssh/*|*/.ssh/*|.secrets/*|*/.secrets/*|.tailscale/*|*/.tailscale/*|credentials*.json|*/credentials*.json|client_secret*.json|*/client_secret*.json|application_default_credentials.json|*/application_default_credentials.json|service-account*.json|*/service-account*.json|secrets*.json|*/secrets*.json|tailscale*.json|*/tailscale*.json|tailscaled.state*|*/tailscaled.state*|docker-compose.override.yml|*/docker-compose.override.yml|compose.override.yml|*/compose.override.yml|*.key|*.p8|*.ppk|*.pem|*.cer|*.crt|*.der|*.p7b|*.p12|*.pfx|*.jks|*.keystore|id_rsa*|*/id_rsa*|id_ed25519*|*/id_ed25519*|*.sqlite|*.sqlite3|*.db|*.dump|*.dump.partial)
+                echo "::error title=Sensitive file is tracked::$tracked_path must remain outside Git and Docker build contexts."
+                sensitive_file_found=1
+                ;;
+            esac
+          done < <(git ls-files -z)
+          [ "$sensitive_file_found" -eq 0 ]
+
+      - name: Verify audited Gitleaks exceptions
+        shell: bash
+        run: >-
+          echo 'b95d20cdbec69a0187e7108396aa5cd357f2349aeb8efe46b3589ae932e3085a  .gitleaksignore'
+          | sha256sum --check --strict
+
+      - name: Download checksum-pinned Gitleaks
+        shell: bash
+        env:
+          GITLEAKS_VERSION: 8.30.1
+          GITLEAKS_SHA256: 551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
+        run: |
+          set -euo pipefail
+          gitleaks_archive="$RUNNER_TEMP/gitleaks.tar.gz"
+          curl --fail --location --silent --show-error --retry 3 \
+            --output "$gitleaks_archive" \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          printf '%s  %s\n' "$GITLEAKS_SHA256" "$gitleaks_archive" | sha256sum --check --strict
+          tar -xzf "$gitleaks_archive" -C "$RUNNER_TEMP" gitleaks
+
+      - name: Scan complete Git history for secrets
+        shell: bash
+        run: >-
+          "$RUNNER_TEMP/gitleaks" git
+          --no-banner
+          --no-color
+          --redact=100
+          --max-archive-depth=2
+          --log-opts=--all
+          .
 
       - name: Set up Node.js
         uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6

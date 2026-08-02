@@ -23,7 +23,6 @@
 
 # misc
 .DS_Store
-*.pem
 
 # debug
 npm-debug.log*
@@ -34,6 +33,42 @@ yarn-error.log*
 # env files (can opt-in for committing if needed)
 .env*
 !.env.example
+
+# local credentials, certificates, and private deployment state
+.npmrc
+.aws/
+.ssh/
+.secrets/
+.tailscale/
+credentials*.json
+client_secret*.json
+application_default_credentials.json
+service-account*.json
+secrets*.json
+tailscale*.json
+tailscaled.state*
+docker-compose.override.yml
+compose.override.yml
+*.key
+*.p8
+*.ppk
+*.pem
+*.cer
+*.crt
+*.der
+*.p7b
+*.p12
+*.pfx
+*.jks
+*.keystore
+id_rsa*
+id_ed25519*
+*.sqlite
+*.sqlite3
+*.db
+*.log
+
+# Add a narrow !exception only for a deliberately reviewed fixture.
 
 # vercel
 .vercel
