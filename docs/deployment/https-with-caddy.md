@@ -10,7 +10,7 @@ Before exposing the tracker publicly:
 2. Give the Mac mini a stable LAN address.
 3. Point the domain's A/AAAA record at the public address.
 4. Forward only TCP 80, TCP 443, and UDP 443 from the router to the Mac mini. Never forward 3000 or 5432.
-5. Set `SITE_ADDRESS=tracker.example.com` in `.env`.
+5. Set `SITE_ADDRESS=tracker.example.com` and `UPSTREAM_FORWARDED_PROTO=https` in `.env`.
 6. Set the application's canonical URL to `https://tracker.example.com`, enable secure cookies, and confirm trusted-host and CSRF settings match that origin.
 7. Recreate Caddy and web so the new environment is loaded:
 

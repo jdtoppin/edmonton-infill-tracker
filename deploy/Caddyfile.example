@@ -9,6 +9,9 @@
 	encode zstd gzip
 
 	reverse_proxy web:3000 {
+		# The Mac installer sets this to https because Tailscale terminates TLS
+		# before the loopback hop. Generic private-LAN HTTP keeps the default.
+		header_up X-Forwarded-Proto {$UPSTREAM_FORWARDED_PROTO:http}
 		health_uri /api/health
 		health_interval 30s
 		health_timeout 5s

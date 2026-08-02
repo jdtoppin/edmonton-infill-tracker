@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { existsSync } from "node:fs";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -16,11 +16,84 @@ const hasMacPlistTools =
 
 describe.skipIf(!hasMacPlistTools)("Tailscale Serve HTTPS port selection", () => {
   let fixtureDirectory: string;
+  let fakeDockerPath: string;
+  let fakeLsofPath: string;
   let statusPath: string;
 
   beforeEach(async () => {
     fixtureDirectory = await mkdtemp(join(tmpdir(), "infill-tailscale-port-test-"));
+    fakeDockerPath = join(fixtureDirectory, "docker");
+    fakeLsofPath = join(fixtureDirectory, "lsof");
     statusPath = join(fixtureDirectory, "serve-status.json");
+    await writeFile(
+      fakeDockerPath,
+      `#!/bin/sh
+if [ "\${INFILL_FAKE_DOCKER_FAIL:-0}" = 1 ]; then
+  exit 1
+fi
+
+case "\${1:-}" in
+  ps)
+    case " $* " in
+      *" --all "*) ;;
+      *) exit 2 ;;
+    esac
+    case " $* " in
+      *" --quiet "*) ;;
+      *) exit 2 ;;
+    esac
+    printf '%s\n' "\${INFILL_FAKE_DOCKER_IDS:-}"
+    ;;
+  inspect)
+    [ "\${2:-}" = --format ] || exit 2
+    case "\${3:-}" in
+      *HostConfig.PortBindings*) ;;
+      *) exit 2 ;;
+    esac
+    [ -n "\${4:-}" ] || exit 2
+    printf '%s\n' "\${INFILL_FAKE_DOCKER_PORTS:-}"
+    ;;
+  *) exit 2 ;;
+esac
+`,
+      { mode: 0o700 },
+    );
+    await writeFile(
+      fakeLsofPath,
+      `#!/bin/sh
+protocol=
+port=
+
+for argument in "$@"; do
+  case "$argument" in
+    -iTCP:*)
+      protocol=TCP
+      port=\${argument#-iTCP:}
+      ;;
+    -iUDP:*)
+      protocol=UDP
+      port=\${argument#-iUDP:}
+      ;;
+  esac
+done
+
+case "$protocol" in
+  TCP) busy_ports=\${INFILL_FAKE_TCP_BUSY:-} ;;
+  UDP) busy_ports=\${INFILL_FAKE_UDP_BUSY:-} ;;
+  *) exit 2 ;;
+esac
+
+[ "\${INFILL_FAKE_LSOF_FAIL:-0}" != 1 ] || exit 2
+
+case ",$busy_ports," in
+  *",$port,"*) exit 0 ;;
+  *) exit 1 ;;
+esac
+`,
+      { mode: 0o700 },
+    );
+    await chmod(fakeDockerPath, 0o700);
+    await chmod(fakeLsofPath, 0o700);
   });
 
   afterEach(async () => {
@@ -29,7 +102,16 @@ describe.skipIf(!hasMacPlistTools)("Tailscale Serve HTTPS port selection", () =>
 
   async function selectPort(
     status: unknown,
-    options: { dnsName?: string; raw?: boolean; startPort?: string } = {},
+    options: {
+      dnsName?: string;
+      dockerFails?: boolean;
+      lsofFails?: boolean;
+      dockerPorts?: string;
+      raw?: boolean;
+      startPort?: string;
+      tcp?: string;
+      udp?: string;
+    } = {},
   ) {
     await writeFile(statusPath, options.raw ? String(status) : JSON.stringify(status));
 
@@ -44,6 +126,14 @@ describe.skipIf(!hasMacPlistTools)("Tailscale Serve HTTPS port selection", () =>
       {
         env: {
           ...process.env,
+          INFILL_DOCKER_BIN: fakeDockerPath,
+          INFILL_FAKE_DOCKER_FAIL: options.dockerFails ? "1" : "0",
+          INFILL_FAKE_DOCKER_IDS: options.dockerPorts ? "stopped-nocturne" : "",
+          INFILL_FAKE_DOCKER_PORTS: options.dockerPorts ?? "",
+          INFILL_FAKE_LSOF_FAIL: options.lsofFails ? "1" : "0",
+          INFILL_FAKE_TCP_BUSY: options.tcp ?? "",
+          INFILL_FAKE_UDP_BUSY: options.udp ?? "",
+          INFILL_LSOF_BIN: fakeLsofPath,
           INFILL_PLUTIL_BIN: "/usr/bin/plutil",
           INFILL_XMLLINT_BIN: "/usr/bin/xmllint",
         },
@@ -70,11 +160,32 @@ describe.skipIf(!hasMacPlistTools)("Tailscale Serve HTTPS port selection", () =>
       {
         env: {
           ...process.env,
+          INFILL_DOCKER_BIN: fakeDockerPath,
+          INFILL_FAKE_DOCKER_PORTS: "",
+          INFILL_FAKE_TCP_BUSY: "",
+          INFILL_FAKE_UDP_BUSY: "",
+          INFILL_LSOF_BIN: fakeLsofPath,
           INFILL_PLUTIL_BIN: "/usr/bin/plutil",
           INFILL_XMLLINT_BIN: "/usr/bin/xmllint",
         },
       },
     );
+  }
+
+  async function dockerPortStatus(
+    port: string,
+    dockerPorts: string,
+    options: { dockerFails?: boolean } = {},
+  ) {
+    return execFileAsync("/bin/sh", [selectorPath, "--docker-port-status", port], {
+      env: {
+        ...process.env,
+        INFILL_DOCKER_BIN: fakeDockerPath,
+        INFILL_FAKE_DOCKER_FAIL: options.dockerFails ? "1" : "0",
+        INFILL_FAKE_DOCKER_IDS: dockerPorts ? "stopped-nocturne" : "",
+        INFILL_FAKE_DOCKER_PORTS: dockerPorts,
+      },
+    });
   }
 
   it("keeps the requested HTTPS port when Serve has no TCP listeners", async () => {
@@ -95,6 +206,70 @@ describe.skipIf(!hasMacPlistTools)("Tailscale Serve HTTPS port selection", () =>
     });
 
     expect(result.stdout).toBe("9443\n");
+  });
+
+  it("skips Nocturne's saved 9443 binding even while its container is stopped", async () => {
+    const result = await selectPort(
+      {
+        TCP: { "443": { HTTPS: true } },
+        Web: {
+          "nightscout.example-tailnet.ts.net:443": {
+            Handlers: { "/": { Proxy: "http://127.0.0.1:8080" } },
+          },
+        },
+      },
+      {
+        dockerPorts: "9443->443/tcp 9443->443/udp",
+      },
+    );
+
+    expect(result.stdout).toBe("9444\n");
+    expect(result.stderr).toBe("");
+  });
+
+  it("skips non-Docker TCP and UDP listeners when choosing a fallback", async () => {
+    const result = await selectPort(
+      { TCP: { "443": { HTTPS: true } } },
+      { tcp: "9443", udp: "9444" },
+    );
+
+    expect(result.stdout).toBe("9445\n");
+  });
+
+  it("reports whether Docker already publishes a candidate port", async () => {
+    const occupied = await dockerPortStatus("9443", "0.0.0.0:9443->443/tcp");
+    const free = await dockerPortStatus("9444", "0.0.0.0:9443->443/tcp");
+
+    expect(occupied.stdout).toBe("in-use\n");
+    expect(free.stdout).toBe("free\n");
+  });
+
+  it("fails closed when Docker cannot confirm a managed port is free", async () => {
+    await expect(dockerPortStatus("9443", "", { dockerFails: true })).rejects.toMatchObject({
+      code: 1,
+      stdout: "",
+      stderr: expect.stringContaining("Docker published ports could not be inspected"),
+    });
+  });
+
+  it("fails closed when Docker cannot inspect fallback candidates", async () => {
+    await expect(
+      selectPort({ TCP: { "443": { HTTPS: true } } }, { dockerFails: true }),
+    ).rejects.toMatchObject({
+      code: 1,
+      stdout: "",
+      stderr: expect.stringContaining("Docker published ports could not be inspected"),
+    });
+  });
+
+  it("fails closed when lsof cannot inspect a fallback candidate", async () => {
+    await expect(
+      selectPort({ TCP: { "443": { HTTPS: true } } }, { lsofFails: true }),
+    ).rejects.toMatchObject({
+      code: 1,
+      stdout: "",
+      stderr: expect.stringContaining("lsof could not inspect TCP port 9443"),
+    });
   });
 
   it("does not claim an unmarked route even when its DNS and proxy happen to match", async () => {
@@ -163,6 +338,26 @@ describe.skipIf(!hasMacPlistTools)("Tailscale Serve HTTPS port selection", () =>
       code: 1,
       stdout: "",
       stderr: expect.stringContaining("expected private Tailscale Serve route"),
+    });
+  });
+
+  it("rejects managed-port ownership when another path shares the HTTPS listener", async () => {
+    await expect(
+      verifyRoute({
+        TCP: { "443": { HTTPS: true } },
+        Web: {
+          "infill.example-tailnet.ts.net:443": {
+            Handlers: {
+              "/": { Proxy: "http://127.0.0.1:8080" },
+              "/another-app": { Proxy: "http://127.0.0.1:9000" },
+            },
+          },
+        },
+      }),
+    ).rejects.toMatchObject({
+      code: 1,
+      stdout: "",
+      stderr: expect.stringContaining("sole handler"),
     });
   });
 

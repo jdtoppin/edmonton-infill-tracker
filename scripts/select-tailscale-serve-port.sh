@@ -70,6 +70,12 @@ valid_dns_name() {
 
 mode=select
 case "$#" in
+  2)
+    [ "$1" = "--docker-port-status" ] ||
+      fail "usage: $script_name [--verify-route] SERVE_STATUS_JSON_FILE DNS_NAME PORT [PROXY_TARGET]"
+    mode=docker_port_status
+    shift
+    ;;
   3) ;;
   5)
     [ "$1" = "--verify-route" ] ||
@@ -81,6 +87,82 @@ case "$#" in
     fail "usage: $script_name [--verify-route] SERVE_STATUS_JSON_FILE DNS_NAME PORT [PROXY_TARGET]"
     ;;
 esac
+
+docker_bin=${INFILL_DOCKER_BIN:-docker}
+docker_published_ports=
+
+inspect_docker_ports() {
+  docker_published_ports=
+  # NetworkSettings.Ports can be empty after a container stops, while the port
+  # it needs on restart remains in HostConfig.PortBindings. Inspect the saved
+  # configuration of every container so a failed restart is still detected.
+  docker_container_ids=$("$docker_bin" ps --all --quiet 2>/dev/null) || return 1
+  for docker_container_id in $docker_container_ids; do
+    container_published_ports=$("$docker_bin" inspect --format \
+      '{{range $containerPort, $bindings := .HostConfig.PortBindings}}{{range $bindings}}{{if .HostPort}}{{printf "%s->%s\n" .HostPort $containerPort}}{{end}}{{end}}{{end}}' \
+      "$docker_container_id" 2>/dev/null) || return 1
+    [ -n "$container_published_ports" ] || continue
+    if [ -z "$docker_published_ports" ]; then
+      docker_published_ports=$container_published_ports
+    else
+      docker_published_ports="$docker_published_ports
+$container_published_ports"
+    fi
+  done
+}
+
+docker_port_in_use() {
+  expected_protocol=$1
+  expected_port=$2
+
+  [ -n "$docker_published_ports" ] || return 1
+
+  for published_binding in $docker_published_ports; do
+    published_binding=${published_binding%,}
+
+    case "$published_binding" in
+      *"->"*"/$expected_protocol") ;;
+      *) continue ;;
+    esac
+
+    host_binding=${published_binding%%->*}
+    published_port=${host_binding##*:}
+
+    case "$published_port" in
+      *-*)
+        range_start=${published_port%%-*}
+        range_end=${published_port#*-}
+        case "$range_start:$range_end" in
+          *[!0-9:]*) continue ;;
+        esac
+        if [ -n "$range_start" ] &&
+          [ -n "$range_end" ] &&
+          [ "$expected_port" -ge "$range_start" ] &&
+          [ "$expected_port" -le "$range_end" ]; then
+          return 0
+        fi
+        ;;
+      "$expected_port") return 0 ;;
+    esac
+  done
+
+  return 1
+}
+
+if [ "$mode" = "docker_port_status" ]; then
+  if ! docker_status_port=$(normalize_port "$1"); then
+    fail "port must be an integer from 1 to $max_port"
+  fi
+  inspect_docker_ports || fail "Docker published ports could not be inspected"
+
+  if docker_port_in_use tcp "$docker_status_port" ||
+    docker_port_in_use udp "$docker_status_port"; then
+    printf '%s\n' in-use
+  else
+    printf '%s\n' free
+  fi
+  exit 0
+fi
 
 status_json_file=$1
 dns_name=$2
@@ -109,6 +191,27 @@ if [ "$mode" = "verify" ]; then
   fi
   [ "$proxy_target" = "http://127.0.0.1:$normalized_proxy_port" ] ||
     fail "proxy target must not contain a path or extra URL components"
+fi
+
+if [ "$mode" = "select" ]; then
+  if [ -n "${INFILL_LSOF_BIN:-}" ]; then
+    lsof_bin=$INFILL_LSOF_BIN
+  elif [ -x /usr/sbin/lsof ]; then
+    lsof_bin=/usr/sbin/lsof
+  elif lsof_bin=$(command -v lsof 2>/dev/null); then
+    :
+  else
+    fail "lsof is required to check host ports"
+  fi
+
+  if [ ! -x "$lsof_bin" ] && ! command -v "$lsof_bin" >/dev/null 2>&1; then
+    fail "lsof command is not executable: $lsof_bin"
+  fi
+
+  # Docker Desktop publishes container ports through its own networking layer,
+  # so retain lsof as a second check but fail closed if Docker's bindings cannot
+  # be inspected reliably.
+  inspect_docker_ports || fail "Docker published ports could not be inspected"
 fi
 
 plutil_bin=${INFILL_PLUTIL_BIN:-/usr/bin/plutil}
@@ -154,7 +257,7 @@ if [ "$("$xmllint_bin" --xpath 'boolean(/plist/dict)' "$status_xml_file" 2>/dev/
   fail "Tailscale Serve status JSON must contain an object"
 fi
 
-port_is_occupied() {
+tailscale_port_is_occupied() {
   candidate=$1
   xpath="boolean(//key[. = 'TCP']/following-sibling::*[1][self::dict]/key[string-length(.) > 0 and translate(., '0123456789', '') = '' and number(.) = $candidate])"
 
@@ -165,17 +268,53 @@ port_is_occupied() {
   [ "$occupied" = "true" ]
 }
 
+tcp_port_in_use() {
+  if docker_port_in_use tcp "$1"; then
+    return 0
+  fi
+
+  if "$lsof_bin" -nP -iTCP:"$1" -sTCP:LISTEN >/dev/null 2>&1; then
+    return 0
+  else
+    lsof_status=$?
+  fi
+  [ "$lsof_status" -eq 1 ] || fail "lsof could not inspect TCP port $1"
+  return 1
+}
+
+udp_port_in_use() {
+  if docker_port_in_use udp "$1"; then
+    return 0
+  fi
+
+  if "$lsof_bin" -nP -iUDP:"$1" >/dev/null 2>&1; then
+    return 0
+  else
+    lsof_status=$?
+  fi
+  [ "$lsof_status" -eq 1 ] || fail "lsof could not inspect UDP port $1"
+  return 1
+}
+
+port_is_occupied() {
+  tailscale_port_is_occupied "$1" || tcp_port_in_use "$1" || udp_port_in_use "$1"
+}
+
 if [ "$mode" = "verify" ]; then
   host_port="$dns_name:$start_port"
   route_xpath="count(/plist/dict/key[. = 'Web']/following-sibling::dict[1]/key[. = '$host_port']/following-sibling::dict[1]/key[. = 'Handlers']/following-sibling::dict[1]/key[. = '/']/following-sibling::dict[1]/key[. = 'Proxy']/following-sibling::string[1][. = '$proxy_target'])"
+  handler_count_xpath="count(/plist/dict/key[. = 'Web']/following-sibling::dict[1]/key[. = '$host_port']/following-sibling::dict[1]/key[. = 'Handlers']/following-sibling::dict[1]/key)"
   https_xpath="boolean(/plist/dict/key[. = 'TCP']/following-sibling::dict[1]/key[. = '$start_port']/following-sibling::dict[1]/key[. = 'HTTPS']/following-sibling::true[1])"
 
   route_count=$("$xmllint_bin" --xpath "$route_xpath" "$status_xml_file" 2>/dev/null) ||
     fail "could not verify the Tailscale Serve proxy route"
+  handler_count=$("$xmllint_bin" --xpath "$handler_count_xpath" "$status_xml_file" 2>/dev/null) ||
+    fail "could not verify exclusive ownership of the Tailscale Serve port"
   https_enabled=$("$xmllint_bin" --xpath "$https_xpath" "$status_xml_file" 2>/dev/null) ||
     fail "could not verify the Tailscale Serve HTTPS listener"
-  [ "$route_count" = "1" ] && [ "$https_enabled" = "true" ] ||
-    fail "the expected private Tailscale Serve route is not configured"
+  [ "$route_count" = "1" ] && [ "$handler_count" = "1" ] &&
+    [ "$https_enabled" = "true" ] ||
+    fail "the expected private Tailscale Serve route is not the sole handler on this port"
   exit 0
 fi
 

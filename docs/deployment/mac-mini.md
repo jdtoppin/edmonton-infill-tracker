@@ -45,7 +45,8 @@ The installer performs these steps and stops with an actionable message rather t
 - prompts invisibly for the initial administrator password, passes it only to the one-time bootstrap container, and never prints or stores it;
 - checks both TCP and UDP listeners, starts with `127.0.0.1:8080` and `127.0.0.1:8443`, and automatically selects the next free loopback ports when another local app already uses either one;
 - builds the stack, applies migrations, and creates or promotes only the configured administrator;
-- inspects existing Tailscale Serve routes, keeps them unchanged, and publishes the tracker on HTTPS `443` when free or a dedicated port starting at `9443` when another app owns `443`;
+- inspects existing Tailscale Serve routes, saved Docker bindings (including stopped containers), and host TCP/UDP listeners; it keeps unrelated routes unchanged and publishes the tracker on HTTPS `443` when free or the first genuinely unused dedicated port starting at `9443`;
+- tells the application that Tailscale terminated HTTPS before the private loopback hop, so sign-in redirects never downgrade to plain HTTP;
 - verifies the exact private proxy route and confirms Funnel remains off.
 
 The administrator bootstrap is idempotent. Rerunning the installer promotes/reactivates the same normalized email without replacing its password. If a first install was interrupted after `.env` was saved but before the administrator was created, the rerun detects the missing account and asks for the password again; that recovery password remains ephemeral. `./scripts/infill bootstrap-admin` prompts for a new hidden password and deliberately creates, promotes, or resets that administrator without storing the password in `.env`.
