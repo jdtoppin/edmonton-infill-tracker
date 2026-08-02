@@ -5,6 +5,7 @@ import type {
   PermitDataset,
   PermitProviderRowResult,
   ProviderDatasetMetadata,
+  RawPermitPayload,
 } from "../../providers";
 import { checksumJson } from "./canonical-json";
 import type {
@@ -137,6 +138,14 @@ function fallbackIdentifier(row: PermitProviderRowResult, checksum: string): str
   return row.rawRecord.sourceRecordIdentifier ?? `invalid:${checksum}`;
 }
 
+/** Socrata refresh metadata can change while the permit's business fields do not. */
+export function checksumPermitPayload(payload: RawPermitPayload): string {
+  const stablePayload = Object.fromEntries(
+    Object.entries(payload).filter(([key]) => key !== ":id" && key !== ":updated_at"),
+  );
+  return checksumJson(stablePayload);
+}
+
 function safeFailureMessage(value: string): string {
   return value.replace(/[\r\n\t]+/g, " ").slice(0, 1_000);
 }
@@ -215,8 +224,9 @@ export async function runPermitImport(
       for (const row of page.rows) {
         options.signal?.throwIfAborted();
         counts.fetched += 1;
-        const checksum = checksumJson(row.rawRecord.payload);
-        const identifier = fallbackIdentifier(row, checksum);
+        const checksum = checksumPermitPayload(row.rawRecord.payload);
+        const identityChecksum = checksumJson(row.rawRecord.payload);
+        const identifier = fallbackIdentifier(row, identityChecksum);
 
         const rawIdentityMatches =
           row.rawRecord.sourceProvider === page.sourceProvider &&

@@ -2,7 +2,7 @@
 
 Edmonton Infill Tracker turns City of Edmonton permit records into address-level project timelines, confidence-ranked residential infill signals, and neighbourhood watchlists.
 
-Phases 1 and 2 are implemented: the repository has a responsive product shell, strict TypeScript, a full Prisma/PostGIS model and migrations, database-backed authentication, a self-hosted Docker layout, and a guarded City of Edmonton permit-import pipeline. The dashboard still displays staged sample metrics until Phase 4 connects it to persisted imports.
+Phases 1 through 3 are implemented: the repository has a responsive product shell, strict TypeScript, a full Prisma/PostGIS model and migrations, database-backed authentication, a guarded City permit-import pipeline, and durable address-level project timelines with classification, occupancy, scoring, and audited admin corrections. The dashboard still displays staged sample metrics until Phase 4 connects it to persisted projects.
 
 ## Quick start
 
@@ -32,6 +32,28 @@ docker compose -f docker-compose.dev.yml run --rm web npm run prisma:seed
 
 The application is available at `http://localhost:3000`, while development PostgreSQL is bound only to `127.0.0.1`. The seed is idempotent and creates synthetic Edmonton-like records, an admin, a standard user, and a saved search. Both seed passwords must be supplied explicitly; there are no fallback credentials.
 
+### Guided Mac mini install
+
+The production installer expects Docker Desktop and Tailscale to be installed, running, and signed in. It derives the Mac's `https://...ts.net` address, binds Caddy only to loopback ports `8080` and `8443`, creates one administrator without demo data, and enables Tailscale Serve. The administrator password is passed only to that one-time bootstrap container; it is not retained in `.env` or the long-running services. The installer never enables Tailscale Funnel.
+
+```sh
+git clone https://github.com/jdtoppin/edmonton-infill-tracker.git
+cd edmonton-infill-tracker
+./scripts/infill install
+```
+
+The installer is safe to rerun: Docker named volumes are retained and an existing `.env` is not replaced or rewritten. If the initial run was interrupted before creating the administrator, the rerun asks for that password again without storing it. It stops if existing hosting settings are not loopback-only or do not match the current tailnet URL. The operator's start, restart, and update commands also refuse to proceed unless every background and foreground Funnel configuration is confirmed off; stop remains available. Use the small operator command afterward:
+
+```sh
+./scripts/infill status
+./scripts/infill logs worker
+./scripts/infill backup
+./scripts/infill update
+./scripts/infill import 2025-01-01 2025-12-31 all
+```
+
+See the [Mac mini deployment guide](docs/deployment/mac-mini.md) for prerequisites, recovery, updates, and the complete command list.
+
 ## Architecture
 
 ```mermaid
@@ -52,7 +74,7 @@ flowchart LR
 - **Database:** PostgreSQL 17 with PostGIS; Prisma 7 provides typed access through the PostgreSQL driver adapter.
 - **Domain layer:** framework-independent address normalization, permit identity, project matching, classification, confidence scoring, saved-search matching, and alert deduplication.
 - **Import layer:** provider interfaces isolate Socrata field mappings from the domain. HTTPS host allowlisting, schema/revision/count guards, bounded responses, retries, raw-first persistence, canonical checksums, and row quarantine protect the normalized store.
-- **Jobs:** Docker-compatible worker and scheduler processes use persisted job records, database-enforced conflict keys, renewable leases, crash recovery, counts, and structured logs. The scheduler checks both permit datasets hourly; manual date-range backfills use the same worker path and cannot overlap an active import.
+- **Jobs:** Docker-compatible worker and scheduler processes use persisted job records, database-enforced conflict keys, renewable leases, crash recovery, counts, and structured logs. The scheduler checks both permit datasets hourly, then matches permits into projects and reapplies current scoring rules; manual date-range backfills use the same worker path and cannot overlap an active import.
 - **Authentication:** lowercase-normalized email accounts, bcrypt password hashes, opaque random sessions stored by token hash, secure HTTP-only cookies, role checks, same-origin checks, and login throttling.
 - **Deployment:** Docker Compose runs database, migration, web, worker, scheduler, and Caddy services. PostgreSQL has no production host port.
 - **Observability:** JSON process logs, import/job histories in PostgreSQL, and `/api/health` readiness reporting without secret details.
@@ -68,6 +90,8 @@ src/domain/                Pure matching, classification, and alert rules
 src/lib/                   Database, auth, logging, and request security
 src/providers/             Validated City permit provider contracts and adapter
 src/services/permit-import Snapshot orchestration and audited persistence
+src/services/project-intelligence
+                            Persisted matching, aggregation, and admin review actions
 src/jobs/                  Docker worker and scheduler entry points
 src/cli/                   Operator commands such as backfill queuing
 prisma/                    Schema, PostGIS migrations, and synthetic seed
@@ -82,16 +106,16 @@ docs/                      Deployment, operations, governance, and status
 
 ## Initial data model
 
-| Area       | Main records                                    | Important guarantees                                                                                            |
-| ---------- | ----------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
-| Identity   | `User`, `Session`                               | Unique normalized email; only session-token hashes are stored; user/admin roles                                 |
-| Geography  | `Neighbourhood`, `Address`                      | City neighbourhood ID and deterministic address key are unique; PostGIS polygon/point fields and GIST indexes   |
-| Ingestion  | `ImportRun`, `RawPermitRecord`, `ImportFailure` | Raw payload audit trail; provider/source record uniqueness; created/updated/skipped/failed counts               |
-| Permits    | `PermitEvent`                                   | One normalized event per provider/source ID with raw payload, source timestamps, address, and neighbourhood     |
-| Projects   | `Project`, `ProjectEvent`                       | Address-level timeline, category, stage, value/units, structured confidence explanation, review and merge audit |
-| Monitoring | `SavedSearch`, `SavedSearchNeighbourhood`       | Per-user filters, daily/immediate/weekly-ready cadence, pause/resume state                                      |
-| Alerts     | `AlertEvent`                                    | Unique user + triggering event and explicit idempotency key prevent duplicate delivery                          |
-| Operations | `JobRun`                                        | Durable status, lock key, start/completion times, counts, errors, and metadata                                  |
+| Area       | Main records                                    | Important guarantees                                                                                          |
+| ---------- | ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| Identity   | `User`, `Session`                               | Unique normalized email; only session-token hashes are stored; user/admin roles                               |
+| Geography  | `Neighbourhood`, `Address`                      | City neighbourhood ID and deterministic address key are unique; PostGIS polygon/point fields and GIST indexes |
+| Ingestion  | `ImportRun`, `RawPermitRecord`, `ImportFailure` | Raw payload audit trail; provider/source record uniqueness; created/updated/skipped/failed counts             |
+| Permits    | `PermitEvent`                                   | One normalized event per provider/source ID with raw payload, source timestamps, address, and neighbourhood   |
+| Projects   | `Project`, `ProjectEvent`, `ProjectAction`      | Address timeline, computed/overridden category and stage, occupancy review flag, and actor-linked admin audit |
+| Monitoring | `SavedSearch`, `SavedSearchNeighbourhood`       | Per-user filters, daily/immediate/weekly-ready cadence, pause/resume state                                    |
+| Alerts     | `AlertEvent`                                    | Unique user + triggering event and explicit idempotency key prevent duplicate delivery                        |
+| Operations | `JobRun`                                        | Durable status, lock key, start/completion times, counts, errors, and metadata                                |
 
 The Prisma source is `prisma/schema.prisma`. PostGIS is enabled before the initial schema migration so spatial columns and indexes are created predictably.
 
@@ -123,7 +147,7 @@ Copy `.env.example` to `.env`. Never commit the resulting file.
 
 | Group             | Variables                                                                                      |
 | ----------------- | ---------------------------------------------------------------------------------------------- |
-| App/auth          | `APP_URL`, `AUTH_REQUIRED`, `INITIAL_ADMIN_EMAIL`, seed passwords                              |
+| App/auth          | `APP_URL`, `AUTH_REQUIRED`, initial administrator email/password, seed-only credentials        |
 | Database          | `DATABASE_URL`, `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD`                            |
 | Edmonton API      | `EDMONTON_SOCRATA_BASE_URL`, both dataset IDs, `SOCRATA_APP_TOKEN`, paging/retry/rate settings |
 | Classification    | `INFILL_HIGH_VALUE_THRESHOLD`                                                                  |
@@ -131,7 +155,7 @@ Copy `.env.example` to `.env`. Never commit the resulting file.
 | Email             | SMTP host, port, username, password, and sender                                                |
 | Optional services | Pushover credentials and `SENTRY_DSN`                                                          |
 | Processes         | Worker and scheduler intervals                                                                 |
-| Hosting           | Docker image tag, Caddy address, HTTP and HTTPS ports                                          |
+| Hosting           | Docker image tag, loopback bind address, Caddy address, HTTP and HTTPS ports                   |
 
 Only variables explicitly prefixed `NEXT_PUBLIC_` may reach browser code. All credentials stay server-side.
 
@@ -150,7 +174,10 @@ npm run prisma:generate
 npm run prisma:migrate:dev
 npm run prisma:migrate:deploy
 npm run prisma:seed
+npm run admin:bootstrap
 npm run import:backfill -- --from=2026-01-01 --to=2026-01-31 --dataset=all
+
+./scripts/infill help
 ```
 
 ## Implementation milestones

@@ -27,6 +27,7 @@
     "prisma:migrate:deploy": "prisma migrate deploy",
     "prisma:seed": "prisma db seed",
     "db:setup": "prisma generate && prisma migrate deploy && prisma db seed",
+    "admin:bootstrap": "tsx src/cli/bootstrap-admin.ts",
     "jobs:worker": "tsx src/jobs/worker.ts",
     "jobs:scheduler": "tsx src/jobs/scheduler.ts",
     "import:backfill": "tsx src/cli/backfill.ts"
