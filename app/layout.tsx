@@ -4,11 +4,23 @@ import "./globals.css";
 
 export async function generateMetadata(): Promise<Metadata> {
   const requestHeaders = await headers();
-  const host = requestHeaders.get("x-forwarded-host") ?? requestHeaders.get("host");
-  const protocol = requestHeaders.get("x-forwarded-proto") ?? "http";
-  const baseUrl = host
-    ? new URL(`${protocol}://${host}`)
-    : new URL(process.env.APP_URL ?? "http://localhost:3000");
+  const configuredUrl = process.env.APP_URL;
+  let baseUrl: URL | null = null;
+  if (configuredUrl) {
+    try {
+      const candidate = new URL(configuredUrl);
+      if (candidate.protocol === "http:" || candidate.protocol === "https:") baseUrl = candidate;
+    } catch {
+      // Invalid configuration falls through to a tightly validated request host.
+    }
+  }
+  const host = requestHeaders.get("host");
+  const protocolHeader = requestHeaders.get("x-forwarded-proto");
+  const protocol = protocolHeader === "https" ? "https" : "http";
+  if (!baseUrl && host && /^[a-z0-9.-]+(?::[0-9]{1,5})?$/i.test(host)) {
+    baseUrl = new URL(`${protocol}://${host}`);
+  }
+  baseUrl ??= new URL("http://localhost:3000");
 
   return {
     metadataBase: baseUrl,
@@ -25,13 +37,13 @@ export async function generateMetadata(): Promise<Metadata> {
       title: "Edmonton Infill Tracker",
       description:
         "Permit signals, project timelines, and neighbourhood alerts for Edmonton infill.",
-      images: [{ url: new URL("/og.png", baseUrl).toString(), width: 1536, height: 1024 }],
+      images: [{ url: new URL("/og-phase4.png", baseUrl).toString(), width: 1732, height: 908 }],
     },
     twitter: {
       card: "summary_large_image",
       title: "Edmonton Infill Tracker",
       description: "See Edmonton infill signals before the listing appears.",
-      images: [new URL("/og.png", baseUrl).toString()],
+      images: [new URL("/og-phase4.png", baseUrl).toString()],
     },
     robots: { index: false, follow: false },
   };

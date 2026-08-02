@@ -9,6 +9,7 @@ x-app-image: &app-image
     args:
       NODE_VERSION: ${NODE_VERSION:-22.23.1}
       NEXT_PUBLIC_MAPBOX_TOKEN: ${NEXT_PUBLIC_MAPBOX_TOKEN:-}
+      APP_BUILD_SHA: ${APP_BUILD_SHA:-unknown}
 
 x-app-runtime: &app-runtime
   <<: *app-image

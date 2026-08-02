@@ -138,6 +138,13 @@ Avoid `docker compose down --volumes`: it deletes the named PostgreSQL volume.
 
 There is intentionally no GitHub-to-Mac automatic deployment in the MVP.
 
+Administrators can open **Administration → Application updates** to compare the compiled commit
+with the fixed public `jdtoppin/edmonton-infill-tracker` main branch and copy the command below. The
+page does not receive a GitHub credential and cannot run a command, select another repository/ref,
+access Docker, or write to the checkout. This keeps host control outside a browser-accessible
+container while still making update availability visible in the product. Builds created by the
+guided installer or update command carry only their non-secret Git commit SHA for this comparison.
+
 After reading the release notes and confirming CI passed, update with one command:
 
 ```sh

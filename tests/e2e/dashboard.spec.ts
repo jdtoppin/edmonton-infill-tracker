@@ -1,37 +1,105 @@
+import path from "node:path";
 import { expect, test, type Page } from "@playwright/test";
 
-async function signIn(page: Page) {
+const userStorageState = path.resolve("playwright/.auth/user.json");
+
+async function signIn(page: Page, role: "admin" | "user" = "admin") {
   await page.goto("/login");
   await page
     .getByLabel("Email address")
-    .fill(process.env.INITIAL_ADMIN_EMAIL ?? "admin@example.test");
+    .fill(
+      role === "admin"
+        ? (process.env.INITIAL_ADMIN_EMAIL ?? "admin@example.test")
+        : (process.env.SEED_USER_EMAIL ?? "user@example.test"),
+    );
   await page
     .locator("#password")
-    .fill(process.env.SEED_ADMIN_PASSWORD ?? "ci-admin-password-not-for-production");
+    .fill(
+      role === "admin"
+        ? (process.env.SEED_ADMIN_PASSWORD ?? "ci-admin-password-not-for-production")
+        : (process.env.SEED_USER_PASSWORD ?? "ci-user-password-not-for-production"),
+    );
   await page.getByRole("button", { name: "Sign in" }).click();
   await expect(page).toHaveURL("/");
 }
 
-test("signs in and shows the permit intelligence overview", async ({ page }) => {
-  await signIn(page);
-  const lifecycle = page.getByRole("region", { name: "From first approval to occupancy" });
+test("@responsive shows the live permit intelligence overview", async ({ page }) => {
+  await page.goto("/");
   await expect(
-    lifecycle.getByRole("heading", { name: "From first approval to occupancy", exact: true }),
+    page.getByRole("heading", { name: "Follow infill from first permit to occupancy." }),
   ).toBeVisible();
-  await expect(lifecycle.getByRole("heading", { name: "Occupancy granted" })).toBeVisible();
+  await expect(page.getByText("New projects detected", { exact: true })).toBeVisible();
   await expect(page.getByRole("heading", { name: "High-confidence projects" })).toBeVisible();
-  await expect(
-    page.getByRole("button", { name: /92 percent confidence 10524 75 Avenue NW/ }),
-  ).toBeVisible();
   await page.getByRole("button", { name: "30 days" }).click();
-  await expect(lifecycle.getByText("31", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "30 days" })).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
 });
 
-test("protects administration and allows an administrator", async ({ page }) => {
+test("@responsive filters projects and opens a normalized permit timeline", async ({ page }) => {
+  await page.goto("/projects?q=99901&view=list");
+  await expect(
+    page.getByRole("heading", { name: "Find infill signals across Edmonton." }),
+  ).toBeVisible();
+  await expect(page).toHaveURL(/q=99901/);
+  const projectLink = page
+    .locator('a[href^="/projects/"]:visible')
+    .filter({ hasText: "99901" })
+    .first();
+  await expect(projectLink).toBeVisible();
+  await projectLink.click();
+  await expect(page.getByRole("heading", { name: "Permit timeline" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: /\d+% confidence/ })).toBeVisible();
+});
+
+test("exports the authenticated filtered project set as CSV", async ({ page }) => {
+  await page.goto("/");
+  const result = await page.evaluate(async () => {
+    const response = await fetch("/api/projects/export?q=99901");
+    return {
+      status: response.status,
+      contentType: response.headers.get("content-type"),
+      csv: await response.text(),
+    };
+  });
+  expect(result.status).toBe(200);
+  expect(result.contentType).toContain("text/csv");
+  expect(result.csv).toContain("Address,Neighbourhood,Category");
+  expect(result.csv).toContain("99901 127 ST NW");
+  expect(result.csv).not.toContain("rawSourcePayload");
+});
+
+test("protects administration, exposes update handoff, and fully revokes logout", async ({
+  browser,
+}) => {
+  const context = await browser.newContext({ storageState: { cookies: [], origins: [] } });
+  const page = await context.newPage();
   await page.goto("/admin");
   await expect(page).toHaveURL(/\/login\?returnTo=/);
 
   await signIn(page);
+  await page.goto("/admin/updates");
+  await expect(page.getByRole("heading", { name: "Application updates" })).toBeVisible();
+  await expect(page.getByText("./scripts/infill update", { exact: true })).toBeVisible();
+
+  const visibleSignOut = page.locator("button:visible").filter({ hasText: "Sign out" });
+  if ((await visibleSignOut.count()) === 0) {
+    await page.getByRole("button", { name: "Open navigation menu" }).click();
+  }
+  await visibleSignOut.first().click();
+  await expect(page).toHaveURL("/login");
   await page.goto("/admin");
-  await expect(page.getByRole("heading", { name: "Operations centre" })).toBeVisible();
+  await expect(page).toHaveURL(/\/login\?returnTo=/);
+  await context.close();
+});
+
+test("does not show or allow administration for an ordinary user", async ({ browser }) => {
+  const context = await browser.newContext({ storageState: userStorageState });
+  const page = await context.newPage();
+  await page.goto("/");
+  await expect(page.getByRole("link", { name: "Administration" })).toHaveCount(0);
+  await page.goto("/admin");
+  await expect(page).toHaveURL("/");
+  await context.close();
 });

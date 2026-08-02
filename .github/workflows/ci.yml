@@ -76,7 +76,7 @@ jobs:
           while IFS= read -r -d '' tracked_path; do
             case "$tracked_path" in
               .env.example) ;;
-              .env|.env.*|*/.env|*/.env.*|.npmrc|*/.npmrc|.aws/*|*/.aws/*|.ssh/*|*/.ssh/*|.secrets/*|*/.secrets/*|.tailscale/*|*/.tailscale/*|credentials*.json|*/credentials*.json|client_secret*.json|*/client_secret*.json|application_default_credentials.json|*/application_default_credentials.json|service-account*.json|*/service-account*.json|secrets*.json|*/secrets*.json|tailscale*.json|*/tailscale*.json|tailscaled.state*|*/tailscaled.state*|docker-compose.override.yml|*/docker-compose.override.yml|compose.override.yml|*/compose.override.yml|*.key|*.p8|*.ppk|*.pem|*.cer|*.crt|*.der|*.p7b|*.p12|*.pfx|*.jks|*.keystore|id_rsa*|*/id_rsa*|id_ed25519*|*/id_ed25519*|*.sqlite|*.sqlite3|*.db|*.dump|*.dump.partial)
+              .env|.env.*|*/.env|*/.env.*|.npmrc|*/.npmrc|.aws/*|*/.aws/*|.ssh/*|*/.ssh/*|.secrets/*|*/.secrets/*|.tailscale/*|*/.tailscale/*|playwright/.auth/*|*/playwright/.auth/*|credentials*.json|*/credentials*.json|client_secret*.json|*/client_secret*.json|application_default_credentials.json|*/application_default_credentials.json|service-account*.json|*/service-account*.json|secrets*.json|*/secrets*.json|tailscale*.json|*/tailscale*.json|tailscaled.state*|*/tailscaled.state*|docker-compose.override.yml|*/docker-compose.override.yml|compose.override.yml|*/compose.override.yml|*.key|*.p8|*.ppk|*.pem|*.cer|*.crt|*.der|*.p7b|*.p12|*.pfx|*.jks|*.keystore|id_rsa*|*/id_rsa*|id_ed25519*|*/id_ed25519*|*.sqlite|*.sqlite3|*.db|*.dump|*.dump.partial)
                 echo "::error title=Sensitive file is tracked::$tracked_path must remain outside Git and Docker build contexts."
                 sensitive_file_found=1
                 ;;
@@ -247,6 +247,7 @@ jobs:
           docker build
           --target runtime
           --build-arg NEXT_PUBLIC_MAPBOX_TOKEN="$NEXT_PUBLIC_MAPBOX_TOKEN"
+          --build-arg APP_BUILD_SHA="$GITHUB_SHA"
           --tag edmonton-infill-tracker:ci
           .
 

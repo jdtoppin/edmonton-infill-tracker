@@ -89,6 +89,27 @@ validate_private_env() {
   [ "$http_port" != "$https_port" ] || die "HTTP_PORT and HTTPS_PORT must be different."
 }
 
+validate_update_checkout() {
+  checkout_root=$(git rev-parse --show-toplevel 2>/dev/null) ||
+    die "the application folder is not a Git checkout."
+  [ "$checkout_root" = "$repo_dir" ] ||
+    die "the update command must run from the application checkout."
+
+  checkout_ref=$(git symbolic-ref -q HEAD 2>/dev/null) ||
+    die "the checkout is detached; switch to the main branch before updating."
+  [ "$checkout_ref" = "refs/heads/main" ] ||
+    die "the update command only updates the main branch."
+
+  origin_url=$(git remote get-url --all origin 2>/dev/null) ||
+    die "the fixed GitHub origin is unavailable."
+  case "$origin_url" in
+    https://github.com/jdtoppin/edmonton-infill-tracker.git|git@github.com:jdtoppin/edmonton-infill-tracker.git|ssh://git@github.com/jdtoppin/edmonton-infill-tracker.git) ;;
+    *)
+      die "origin must be the single fixed jdtoppin/edmonton-infill-tracker GitHub repository."
+      ;;
+  esac
+}
+
 require_local_ports_available() {
   operation=$1
   running_caddy_id=$(docker compose ps --status running --quiet caddy 2>/dev/null || true)
@@ -302,12 +323,20 @@ case "$command_name" in
         require_funnel_off "update"
         require_local_ports_available "update"
         acquire_operator_lock
+        validate_update_checkout
         [ -z "$(git status --porcelain)" ] ||
           die "the repository has local changes; preserve or commit them before updating."
         sh "$script_dir/backup-postgres.sh"
-        git fetch --prune
-        git pull --ff-only
-        docker compose build --pull
+        git fetch --prune --no-tags origin refs/heads/main
+        git merge --ff-only FETCH_HEAD
+        app_build_sha=$(git rev-parse --verify HEAD 2>/dev/null) ||
+          die "the updated Git revision could not be identified."
+        case "$app_build_sha" in
+          ""|*[!0-9a-f]*) die "the updated Git revision is not a full commit SHA." ;;
+        esac
+        [ "${#app_build_sha}" -eq 40 ] ||
+          die "the updated Git revision is not a full commit SHA."
+        APP_BUILD_SHA="$app_build_sha" docker compose build --pull
         docker compose pull caddy
         docker compose stop caddy web worker scheduler
         if ! docker compose run --rm migrate; then

@@ -3,6 +3,7 @@
 import { useState, useSyncExternalStore, type FormEvent } from "react";
 import { ArrowRight, Eye, EyeOff, LoaderCircle, LockKeyhole, Mail } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { safeReturnPath } from "@/src/lib/safe-return-path";
 
 function subscribeToHydration() {
   return () => {};
@@ -38,11 +39,7 @@ export function LoginForm() {
         throw new Error(payload.error ?? "Unable to sign in.");
       }
       const requestedReturn = new URLSearchParams(window.location.search).get("returnTo");
-      const returnTo =
-        requestedReturn?.startsWith("/") && !requestedReturn.startsWith("//")
-          ? requestedReturn
-          : "/";
-      window.location.assign(returnTo);
+      window.location.assign(safeReturnPath(requestedReturn ?? "/"));
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Unable to sign in.");
     } finally {

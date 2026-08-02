@@ -2,7 +2,7 @@
 
 Edmonton Infill Tracker turns City of Edmonton permit records into address-level project timelines, confidence-ranked residential infill signals, and neighbourhood watchlists.
 
-Phases 1 through 3 are implemented: the repository has a responsive product shell, strict TypeScript, a full Prisma/PostGIS model and migrations, database-backed authentication, a guarded City permit-import pipeline, and durable address-level project timelines with classification, occupancy, scoring, and audited admin corrections. The dashboard still displays staged sample metrics until Phase 4 connects it to persisted projects.
+Phases 1 through 4 are implemented: the repository has a responsive authenticated workspace, strict TypeScript, a full Prisma/PostGIS model and migrations, a guarded City permit-import pipeline, durable address-level project timelines, live overview metrics, URL-filtered project exploration, Mapbox/list views, filtered CSV, project evidence, and audited administrator operations. The hosted no-database product preview is explicitly labelled and synthetic; the Mac mini never silently substitutes preview records for its private PostgreSQL data.
 
 ## Quick start
 
@@ -70,7 +70,7 @@ flowchart LR
   W --> M["Mapbox map client"]
 ```
 
-- **Web app:** Next.js App Router, React, strict TypeScript, Tailwind CSS, and source-owned shadcn-style components.
+- **Web app:** Next.js App Router, React, strict TypeScript, Tailwind CSS, source-owned shadcn-style components, server-side live read models, and progressively enhanced URL filters.
 - **Database:** PostgreSQL 17 with PostGIS; Prisma 7 provides typed access through the PostgreSQL driver adapter.
 - **Domain layer:** framework-independent address normalization, permit identity, project matching, classification, confidence scoring, saved-search matching, and alert deduplication.
 - **Import layer:** provider interfaces isolate Socrata field mappings from the domain. HTTPS host allowlisting, schema/revision/count guards, bounded responses, retries, raw-first persistence, canonical checksums, and row quarantine protect the normalized store.
@@ -78,6 +78,7 @@ flowchart LR
 - **Authentication:** lowercase-normalized email accounts, bcrypt password hashes, opaque random sessions stored by token hash, secure HTTP-only cookies, role checks, same-origin checks, and login throttling.
 - **Deployment:** Docker Compose runs database, migration, web, worker, scheduler, and Caddy services. PostgreSQL has no production host port.
 - **Observability:** JSON process logs, import/job histories in PostgreSQL, and `/api/health` readiness reporting without secret details.
+- **Updates:** the administrator UI compares the compiled commit with the fixed public GitHub repository and copies the guarded host command. The web container receives no Docker socket, repository mount, arbitrary ref, or shell execution capability.
 
 The app uses the Next.js programming model without depending on Vercel services. The current runtime is built through Vinext so the same product shell can be previewed and validated in a Cloudflare-compatible environment; the supported production target remains the Dockerized Mac mini stack.
 
@@ -86,12 +87,18 @@ The app uses the Next.js programming model without depending on Vercel services.
 ```text
 app/                       App Router pages and server routes
 components/ui/             Reusable shadcn-style UI primitives
+components/workspace/      Authenticated, role-aware responsive shell
+components/projects/       Filters, result table, accessible Mapbox map, and timeline
+components/admin/          Import, review, and update controls
 src/domain/                Pure matching, classification, and alert rules
 src/lib/                   Database, auth, logging, and request security
 src/providers/             Validated City permit provider contracts and adapter
 src/services/permit-import Snapshot orchestration and audited persistence
 src/services/project-intelligence
                             Persisted matching, aggregation, and admin review actions
+src/services/project-read-model
+                            Live dashboard, project queries, presentation, and safe CSV
+src/services/admin/         Admin import, health, and application-update read models
 src/jobs/                  Docker worker and scheduler entry points
 src/cli/                   Operator commands such as backfill queuing
 prisma/                    Schema, PostGIS migrations, and synthetic seed
@@ -185,7 +192,7 @@ npm run import:backfill -- --from=2026-01-01 --to=2026-01-31 --dataset=all
 1. **Foundation:** repository/tooling, PostGIS schema, seed, authentication, product shell, tests, Docker, CI, and operator docs.
 2. **Permit ingestion:** provider contract, Edmonton Socrata adapters, pagination/retry/rate limiting, raw storage, incremental/backfill imports, and summaries.
 3. **Project intelligence:** address matching, project timelines, configurable classification/confidence, and manual review controls.
-4. **User interface:** live dashboard, Mapbox explore view, projects table/detail, filters, CSV export, and responsive flows.
+4. **User interface:** live dashboard, Mapbox explore view, projects table/detail, filters, CSV export, responsive flows, administrator operations, logout, and safe application-update status.
 5. **Alerts:** saved-search UI, event matching, deduplicated daily email, history, and future Pushover hooks.
 6. **Production readiness:** full health/data-quality operations, security/accessibility review, restore drill, and release process.
 
@@ -199,6 +206,7 @@ See [implementation status](docs/implementation-status.md) for the live checklis
 - The app does not treat a confidence score as fact. Every score stores structured evidence and the UI must use qualified wording.
 - City datasets are provided without warranty and can change. Preserve source timestamps, raw payloads, and attribution; review the [City of Edmonton Open Data licence](https://data.edmonton.ca/stories/s/City-of-Edmonton-Open-Data-Terms-of-Use/msh8-if28/) before distribution.
 - Confirm Mapbox terms for the selected plan. Do not automate market or social sources until an official API or connector passes the [provider audit](docs/data-sources/market-provider-policy.md).
+- Treat `NEXT_PUBLIC_MAPBOX_TOKEN` as browser-visible: use a minimum-scope public token restricted to the private application URL. Never place a secret Mapbox token in that variable.
 - Do not include production addresses, user emails, raw records, tokens, or `.env` values in fixtures, issues, screenshots, or logs.
 
 ## Operations and contribution docs
@@ -208,4 +216,4 @@ See [implementation status](docs/implementation-status.md) for the live checklis
 - [PostgreSQL backup and restore](docs/operations/postgres-backup.md)
 - [Repository governance and branch protection](docs/repository/governance.md)
 
-CI validates dependency installation, type checking, linting, unit/integration tests, production build, and Playwright smoke flows. It does not deploy to the Mac mini; the first release uses a documented backup-first manual update.
+CI validates dependency installation, type checking, linting, unit/integration tests, production build, and desktop/mobile Playwright flows. It does not deploy to the Mac mini. The update page deliberately hands installation to the documented backup-first host command.
