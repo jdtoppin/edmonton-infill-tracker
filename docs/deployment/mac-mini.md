@@ -1,12 +1,12 @@
 # Mac mini deployment
 
-This is the supported MVP production path. It keeps PostgreSQL on a private Docker network, applies Prisma migrations before application processes start, and exposes only Caddy on the Mac mini.
+This is the supported MVP production path. It keeps PostgreSQL on a private Docker network, applies Prisma migrations before application processes start, and exposes only Caddy on the Mac mini. The recommended personal deployment keeps Caddy on loopback and publishes it only to the owner's tailnet with Tailscale Serve.
 
 ## Service layout
 
 | Service     | Responsibility                                                   | Host exposure                 |
 | ----------- | ---------------------------------------------------------------- | ----------------------------- |
-| `caddy`     | LAN HTTP and optional public HTTPS reverse proxy                 | TCP 80 and TCP/UDP 443        |
+| `caddy`     | Loopback HTTP for Tailscale Serve, or optional LAN/HTTPS proxy   | Configurable host binding     |
 | `web`       | Next.js application and health endpoint                          | Docker networks only          |
 | `worker`    | Import, matching, reclassification, alert, and data-quality work | Docker networks only          |
 | `scheduler` | Enqueues recurring jobs                                          | Docker networks only          |
@@ -14,6 +14,8 @@ This is the supported MVP production path. It keeps PostgreSQL on a private Dock
 | `db`        | PostgreSQL 17 with PostGIS                                       | Private database network only |
 
 The application services can reach the internet for Edmonton Open Data and alert delivery. Only application services can reach the database network. There is deliberately no PostgreSQL `ports` entry in `docker-compose.yml`.
+
+Permit jobs use a database-enforced conflict key plus a renewable worker lease. If the worker is killed, the next worker reclaims the expired job and closes its interrupted import run before retrying; a queued backfill cannot overlap a scheduled import.
 
 ## 1. Prepare the Mac
 
@@ -23,7 +25,7 @@ The application services can reach the internet for Edmonton Open Data and alert
 4. In macOS Energy settings, prevent automatic sleep while the display is off. A sleeping Mac cannot import data, send alerts, or serve the site.
 5. Install Git, either with the Xcode command-line tools or Homebrew.
 
-Do not forward port 5432 on the router or add a database port mapping. If the site remains LAN-only, no router port forwarding is needed.
+Do not forward any router ports and do not add a database port mapping. Tailscale Serve makes the app available only inside the tailnet and applies the tailnet access policy.
 
 ## 2. Clone and configure
 
@@ -42,7 +44,8 @@ Edit `.env` and complete every value marked required. At minimum, review:
 - `AUTH_REQUIRED`, the application URL, initial administrator email, and strong seed passwords
 - Edmonton Open Data base URL, dataset identifiers, optional Socrata application token, page size, and rate limit
 - Mapbox public token and alert-provider credentials
-- `SITE_ADDRESS` if a public domain will be used
+- `HOST_BIND_ADDRESS=127.0.0.1` for the recommended Tailscale-only deployment
+- `SITE_ADDRESS=:80` when Tailscale terminates HTTPS in front of Caddy
 
 Generate a URL-safe database password. Hex output avoids breaking the database URL assembled by Compose:
 
@@ -52,7 +55,16 @@ openssl rand -hex 32
 
 Never commit `.env`. Keep a secure copy of the production values in a password manager.
 
-For LAN-only use, leave `SITE_ADDRESS=:80`. The site will be available at `http://<mac-mini-lan-address>/`. Give the Mac mini a DHCP reservation so its LAN address remains stable.
+For Tailscale-only use, keep `HOST_BIND_ADDRESS=127.0.0.1` and `SITE_ADDRESS=:80`. After the stack is healthy, publish the loopback listener to the tailnet with the current Tailscale CLI:
+
+```sh
+tailscale serve --bg http://127.0.0.1:80
+tailscale serve status
+```
+
+Use the exact `https://...ts.net` URL reported by Tailscale as `APP_URL`, then recreate the web container. The application uses that configured public origin for login/logout request protection because Tailscale terminates HTTPS before forwarding to loopback HTTP. Do not enable Tailscale Funnel; Funnel is public, while Serve remains restricted to the tailnet. Tailnet grants should limit this Mac mini service to the intended user or devices.
+
+For direct LAN use without Tailscale Serve, set `HOST_BIND_ADDRESS=0.0.0.0`. The site will then be available at `http://<mac-mini-lan-address>/`; give the Mac mini a DHCP reservation so its LAN address remains stable.
 
 ## 3. Build and start
 
@@ -97,8 +109,10 @@ docker compose run --rm migrate
 Start a historical import. The exact date flags are implemented by the `import:backfill` command:
 
 ```sh
-docker compose run --rm worker npm run import:backfill -- --from 2020-01-01 --to 2026-07-31
+docker compose run --rm worker npm run import:backfill -- --from=2020-01-01 --to=2026-07-31 --dataset=all
 ```
+
+This queues the work; the running worker processes it. Use `--dataset=development` or `--dataset=building` to limit a backfill.
 
 Follow all logs or only one service:
 

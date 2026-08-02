@@ -185,6 +185,13 @@ model Address {
 model ImportRun {
   id             String     @id @default(cuid())
   sourceProvider String
+  // Non-null only while a run is active; the unique key prevents overlapping
+  // imports of the same provider dataset and is cleared on every terminal state.
+  activeKey      String?    @unique
+  // Worker-owned imports retain the exact job lease that created them. Repository
+  // writes validate this token against the current JobRun under a database lock.
+  jobRunId       String?
+  leaseToken     String?
   mode           ImportMode
   status         RunStatus  @default(PENDING)
   requestedFrom  DateTime?  @db.Timestamptz(3)
@@ -202,11 +209,13 @@ model ImportRun {
   createdAt      DateTime   @default(now()) @db.Timestamptz(3)
   updatedAt      DateTime   @updatedAt @db.Timestamptz(3)
 
+  jobRun     JobRun?           @relation(fields: [jobRunId], references: [id], onDelete: Restrict)
   rawRecords RawPermitRecord[]
   failures   ImportFailure[]
 
   @@index([sourceProvider, createdAt])
   @@index([status, createdAt])
+  @@index([jobRunId, leaseToken, status])
 }
 
 model RawPermitRecord {
@@ -261,8 +270,9 @@ model PermitEvent {
   buildingType           String?
   constructionValue      Decimal?  @db.Decimal(15, 2)
   unitsAdded             Int?
+  occupancyGrantedDate   DateTime? @db.Date
   addressId              String
-  neighbourhoodId        String
+  neighbourhoodId        String?
   rawRecordId            String?   @unique
   rawSourcePayload       Json
   importedAt             DateTime  @default(now()) @db.Timestamptz(3)
@@ -271,7 +281,7 @@ model PermitEvent {
   updatedAt              DateTime  @updatedAt @db.Timestamptz(3)
 
   address       Address          @relation(fields: [addressId], references: [id], onDelete: Restrict)
-  neighbourhood Neighbourhood    @relation(fields: [neighbourhoodId], references: [id], onDelete: Restrict)
+  neighbourhood Neighbourhood?   @relation(fields: [neighbourhoodId], references: [id], onDelete: Restrict)
   rawRecord     RawPermitRecord? @relation(fields: [rawRecordId], references: [id], onDelete: SetNull)
   projectEvent  ProjectEvent?
   alertEvents   AlertEvent[]
@@ -281,6 +291,7 @@ model PermitEvent {
   @@index([addressId])
   @@index([neighbourhoodId, issueDate])
   @@index([applicationDate])
+  @@index([occupancyGrantedDate])
   @@index([sourceUpdatedAt])
 }
 
@@ -411,6 +422,10 @@ model JobRun {
   status          RunStatus @default(PENDING)
   // A running worker holds a non-null unique key and clears it when it finishes.
   lockKey         String?   @unique
+  // Non-null only while queued/running. Fixed keys make enqueueing atomic.
+  conflictKey     String?   @unique
+  heartbeatAt     DateTime? @db.Timestamptz(3)
+  lockExpiresAt   DateTime? @db.Timestamptz(3)
   processedCount  Int       @default(0)
   successfulCount Int       @default(0)
   failedCount     Int       @default(0)
@@ -421,6 +436,9 @@ model JobRun {
   createdAt       DateTime  @default(now()) @db.Timestamptz(3)
   updatedAt       DateTime  @updatedAt @db.Timestamptz(3)
 
+  importRuns ImportRun[]
+
   @@index([jobType, createdAt])
   @@index([status, createdAt])
+  @@index([status, lockExpiresAt])
 }

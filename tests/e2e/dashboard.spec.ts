@@ -6,7 +6,7 @@ async function signIn(page: Page) {
     .getByLabel("Email address")
     .fill(process.env.INITIAL_ADMIN_EMAIL ?? "admin@example.test");
   await page
-    .getByLabel("Password")
+    .locator("#password")
     .fill(process.env.SEED_ADMIN_PASSWORD ?? "ci-admin-password-not-for-production");
   await page.getByRole("button", { name: "Sign in" }).click();
   await expect(page).toHaveURL("/");
@@ -14,7 +14,10 @@ async function signIn(page: Page) {
 
 test("signs in and shows the permit intelligence overview", async ({ page }) => {
   await signIn(page);
-  await expect(page.getByRole("heading", { name: /promising infill signals/i })).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: /from first approval to occupancy/i }),
+  ).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Occupancy granted" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "High-confidence projects" })).toBeVisible();
   await expect(page.getByText("10524 75 Avenue NW").first()).toBeVisible();
   await page.getByRole("button", { name: "30 days" }).click();

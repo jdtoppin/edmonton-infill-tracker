@@ -1,10 +1,19 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
+import { useState, useSyncExternalStore, type FormEvent } from "react";
 import { ArrowRight, Eye, EyeOff, LoaderCircle, LockKeyhole, Mail } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
+function subscribeToHydration() {
+  return () => {};
+}
+
 export function LoginForm() {
+  const hydrated = useSyncExternalStore(
+    subscribeToHydration,
+    () => true,
+    () => false,
+  );
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -25,7 +34,7 @@ export function LoginForm() {
         }),
       });
       if (!response.ok) {
-        const payload = (await response.json()) as { error?: string };
+        const payload = (await response.json().catch(() => ({}))) as { error?: string };
         throw new Error(payload.error ?? "Unable to sign in.");
       }
       const requestedReturn = new URLSearchParams(window.location.search).get("returnTo");
@@ -42,7 +51,7 @@ export function LoginForm() {
   }
 
   return (
-    <form className="login-form" onSubmit={handleSubmit}>
+    <form className="login-form" method="post" onSubmit={handleSubmit}>
       <label htmlFor="email">Email address</label>
       <div className="field-wrap">
         <Mail size={17} aria-hidden="true" />
@@ -87,7 +96,7 @@ export function LoginForm() {
         </div>
       )}
 
-      <Button type="submit" className="login-submit" disabled={loading}>
+      <Button type="submit" className="login-submit" disabled={!hydrated || loading}>
         {loading ? (
           <LoaderCircle className="spin" size={17} />
         ) : (

@@ -4,6 +4,16 @@ export function requestOriginIsAllowed(request: Request): boolean {
   const origin = request.headers.get("origin");
   if (!origin) return process.env.NODE_ENV !== "production";
 
+  if (process.env.NODE_ENV === "production") {
+    const configuredUrl = process.env.APP_URL;
+    if (!configuredUrl) return false;
+    try {
+      return origin === new URL(configuredUrl).origin;
+    } catch {
+      return false;
+    }
+  }
+
   const forwardedHost = request.headers.get("x-forwarded-host");
   const host = forwardedHost ?? request.headers.get("host");
   const protocol =

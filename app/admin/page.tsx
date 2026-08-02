@@ -7,8 +7,8 @@ export const metadata: Metadata = { title: "Operations" };
 const operations = [
   {
     label: "Permit imports",
-    value: "Ready",
-    detail: "Incremental and backfill queue",
+    value: "Implemented",
+    detail: "Hourly snapshot checks and backfill queue",
     icon: UploadCloud,
   },
   {
@@ -17,8 +17,18 @@ const operations = [
     detail: "Connection checked by health route",
     icon: Database,
   },
-  { label: "Classification", value: "29 tests", detail: "Configurable rule engine", icon: Gauge },
-  { label: "Failed records", value: "0", detail: "Review queue is clear", icon: FileWarning },
+  {
+    label: "Classification",
+    value: "Rule engine",
+    detail: "Configurable evidence scoring",
+    icon: Gauge,
+  },
+  {
+    label: "Failed records",
+    value: "Quarantined",
+    detail: "Bad source rows are isolated for review",
+    icon: FileWarning,
+  },
 ];
 
 export default async function AdminPage() {
@@ -42,8 +52,8 @@ export default async function AdminPage() {
               Operations centre
             </h1>
             <p className="mt-2 text-xs text-[var(--muted)]">
-              Signed in as {user.email}. Import and review controls will arrive with the ingestion
-              milestone.
+              Signed in as {user.email}. Imports now run through the durable job queue; interactive
+              controls and review screens arrive with the live UI milestone.
             </p>
           </div>
           <div className="inline-flex items-center gap-2 self-start rounded-full border border-[#b9dccb] bg-[#eaf6f0] px-3 py-2 text-[10px] font-bold text-[#28654c]">

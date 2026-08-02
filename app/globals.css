@@ -494,70 +494,183 @@ button {
   box-shadow: 0 1px 3px rgb(23 48 51 / 10%);
 }
 
-.metric-grid {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 11px;
-}
-
-.metric-card {
-  position: relative;
-  min-height: 122px;
+.lifecycle-card {
   overflow: hidden;
-  padding: 16px 17px;
 }
 
-.metric-card.metric-accent::before {
+.lifecycle-head {
+  display: flex;
+  min-height: 76px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  border-bottom: 1px solid var(--border-soft);
+  padding: 15px 20px;
+}
+
+.lifecycle-head .eyebrow {
+  margin-bottom: 4px;
+}
+
+.lifecycle-head h2 {
+  margin: 0;
+  color: var(--spruce);
+  font-size: 15px;
+  font-weight: 720;
+  letter-spacing: -0.015em;
+}
+
+.lifecycle-head p {
+  margin: 5px 0 0;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.45;
+}
+
+.lifecycle-period {
+  flex: none;
+  border: 1px solid #cfe0df;
+  border-radius: 999px;
+  background: #f0f6f5;
+  padding: 6px 10px;
+  color: var(--teal);
+  font-size: 9px;
+  font-weight: 720;
+  letter-spacing: 0.025em;
+}
+
+.lifecycle-steps {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.lifecycle-step {
+  position: relative;
+  min-width: 0;
+  padding: 19px 20px 21px;
+}
+
+.lifecycle-step + .lifecycle-step {
+  border-left: 1px solid var(--border-soft);
+}
+
+.lifecycle-step:not(:last-child)::after {
   position: absolute;
-  inset: 0 auto 0 0;
-  width: 3px;
-  background: var(--copper);
+  z-index: 2;
+  top: 29px;
+  right: -7px;
+  width: 12px;
+  height: 12px;
+  border-top: 1px solid #c9d3d0;
+  border-right: 1px solid #c9d3d0;
+  background: white;
   content: "";
+  transform: rotate(45deg);
 }
 
-.metric-head {
+.milestone-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  color: var(--muted);
-  font-size: 10px;
-  font-weight: 650;
-  letter-spacing: 0.01em;
 }
 
-.metric-icon {
+.milestone-icon {
   display: grid;
-  width: 30px;
-  height: 30px;
+  width: 34px;
+  height: 34px;
   place-items: center;
-  border-radius: 8px;
-  background: var(--teal-soft);
-  color: var(--teal);
+  border-radius: 9px;
 }
 
-.metric-accent .metric-icon {
+.lifecycle-step.development .milestone-icon {
   background: #fff1e3;
   color: var(--copper);
 }
 
-.metric-value {
-  margin-top: 3px;
+.lifecycle-step.building .milestone-icon {
+  background: var(--teal-soft);
+  color: var(--teal);
+}
+
+.lifecycle-step.occupancy .milestone-icon {
+  background: #eaf5ee;
+  color: var(--positive);
+}
+
+.milestone-order {
+  color: #a0aaa7;
+  font-size: 9px;
+  font-weight: 760;
+  letter-spacing: 0.1em;
+}
+
+.milestone-count {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin-top: 14px;
+}
+
+.milestone-count strong {
   color: var(--spruce);
-  font-size: 29px;
+  font-size: 30px;
   font-weight: 740;
   font-variant-numeric: tabular-nums;
   letter-spacing: -0.04em;
   line-height: 1.1;
 }
 
-.metric-detail {
-  display: flex;
-  align-items: center;
-  gap: 3px;
-  margin-top: 9px;
-  color: var(--positive);
+.milestone-count span {
+  color: var(--muted-soft);
   font-size: 9px;
-  font-weight: 620;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.lifecycle-step h3 {
+  margin: 7px 0 0;
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 720;
+  letter-spacing: -0.005em;
+}
+
+.lifecycle-step p {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 9px;
+  line-height: 1.5;
+}
+
+.lifecycle-note {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr);
+  align-items: start;
+  gap: 9px;
+  border-top: 1px solid #dfe8e5;
+  background: #f5f8f6;
+  padding: 11px 20px;
+  color: var(--muted);
+}
+
+.lifecycle-note > svg {
+  margin-top: 1px;
+  color: var(--teal);
+}
+
+.lifecycle-note p {
+  margin: 0;
+  font-size: 9px;
+  line-height: 1.55;
+}
+
+.lifecycle-note strong {
+  color: var(--ink);
+  font-weight: 720;
 }
 
 .map-card {
@@ -1620,10 +1733,6 @@ button {
     position: static;
   }
 
-  .metric-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
   .map-shell {
     grid-template-columns: minmax(0, 1fr) 280px;
   }
@@ -1769,22 +1878,49 @@ button {
     flex: 1;
   }
 
-  .metric-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 8px;
+  .lifecycle-head {
+    align-items: flex-start;
+    padding: 15px 16px;
   }
 
-  .metric-card {
-    min-height: 118px;
-    padding: 14px;
+  .lifecycle-steps {
+    grid-template-columns: 1fr;
   }
 
-  .metric-head > span {
-    max-width: 90px;
+  .lifecycle-step {
+    padding: 16px;
   }
 
-  .metric-detail {
-    line-height: 1.35;
+  .lifecycle-step + .lifecycle-step {
+    border-top: 1px solid var(--border-soft);
+    border-left: 0;
+  }
+
+  .lifecycle-step:not(:last-child)::after {
+    display: none;
+  }
+
+  .milestone-head {
+    position: absolute;
+    top: 16px;
+    left: 16px;
+    flex-direction: column;
+    align-items: center;
+    gap: 7px;
+  }
+
+  .milestone-count,
+  .lifecycle-step h3,
+  .lifecycle-step > p {
+    margin-left: 49px;
+  }
+
+  .milestone-count {
+    margin-top: 0;
+  }
+
+  .lifecycle-note {
+    padding-inline: 16px;
   }
 
   .map-head {
@@ -1898,8 +2034,17 @@ button {
     display: none;
   }
 
-  .metric-value {
-    font-size: 26px;
+  .lifecycle-head {
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .lifecycle-period {
+    align-self: flex-start;
+  }
+
+  .milestone-count strong {
+    font-size: 27px;
   }
 
   .health-strip {

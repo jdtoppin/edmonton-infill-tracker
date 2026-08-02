@@ -1,6 +1,11 @@
 import { JobType, RunStatus } from "../generated/prisma/enums";
 import { getDb } from "../lib/db";
 import { log } from "../lib/logger";
+import {
+  dataQualityConflictKey,
+  isUniqueConstraintError,
+  permitImportConflictKey,
+} from "./permit-import-job";
 
 const intervalMs = Number(process.env.SCHEDULER_INTERVAL_MS ?? 60 * 60 * 1000);
 let stopping = false;
@@ -22,22 +27,40 @@ function waitForNextRun() {
 
 async function enqueueDataQualityCheck() {
   const db = await getDb();
-  const existing = await db.jobRun.findFirst({
-    where: {
-      jobType: JobType.DATA_QUALITY_CHECK,
-      status: { in: [RunStatus.PENDING, RunStatus.RUNNING] },
-    },
-  });
-  if (existing) return;
+  try {
+    const job = await db.jobRun.create({
+      data: {
+        jobType: JobType.DATA_QUALITY_CHECK,
+        status: RunStatus.PENDING,
+        conflictKey: dataQualityConflictKey,
+        metadata: { source: "scheduler" },
+      },
+    });
+    log("info", "scheduler.enqueued", { jobId: job.id, jobType: job.jobType });
+  } catch (error) {
+    if (!isUniqueConstraintError(error)) throw error;
+  }
+}
 
-  const job = await db.jobRun.create({
-    data: {
-      jobType: JobType.DATA_QUALITY_CHECK,
-      status: RunStatus.PENDING,
-      metadata: { source: "scheduler" },
-    },
-  });
-  log("info", "scheduler.enqueued", { jobId: job.id, jobType: job.jobType });
+async function enqueuePermitImport() {
+  const db = await getDb();
+  try {
+    const job = await db.jobRun.create({
+      data: {
+        jobType: JobType.INCREMENTAL_PERMIT_IMPORT,
+        status: RunStatus.PENDING,
+        conflictKey: permitImportConflictKey,
+        metadata: {
+          mode: "incremental",
+          datasets: ["development", "building"],
+          source: "scheduler",
+        },
+      },
+    });
+    log("info", "scheduler.enqueued", { jobId: job.id, jobType: job.jobType });
+  } catch (error) {
+    if (!isUniqueConstraintError(error)) throw error;
+  }
 }
 
 async function main() {
@@ -46,6 +69,7 @@ async function main() {
   log("info", "scheduler.ready", { intervalMs });
 
   while (!stopping) {
+    await enqueuePermitImport();
     await enqueueDataQualityCheck();
     await waitForNextRun();
   }
@@ -63,7 +87,7 @@ for (const signal of ["SIGINT", "SIGTERM"] as const) {
 
 main().catch((error) => {
   log("error", "scheduler.crashed", {
-    message: error instanceof Error ? error.message : "Unknown error",
+    errorName: error instanceof Error ? error.name : "UnknownError",
   });
   process.exitCode = 1;
 });
