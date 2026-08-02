@@ -34,7 +34,7 @@ The application is available at `http://localhost:3000`, while development Postg
 
 ### Guided Mac mini install
 
-The production installer expects Docker Desktop and Tailscale to be installed, running, and signed in. It derives the Mac's `https://...ts.net` address, binds Caddy only to loopback ports `8080` and `8443`, creates one administrator without demo data, and enables Tailscale Serve. The administrator password is passed only to that one-time bootstrap container; it is not retained in `.env` or the long-running services. The installer never enables Tailscale Funnel.
+The production installer expects Docker Desktop and Tailscale to be installed, running, and signed in. It derives the Mac's private `https://...ts.net` URL, starts with loopback ports `8080` and `8443`, and automatically advances to free ports if another local app already uses either one. Multiple Caddy containers can coexist because each receives distinct host ports. It also preserves existing Tailscale Serve routes, using HTTPS `443` when free or a dedicated port starting at `9443` when another app already owns `443`. The installer creates one administrator without demo data and enables Tailscale Serve. The administrator password is passed only to that one-time bootstrap container; it is not retained in `.env` or the long-running services. The installer never enables Tailscale Funnel.
 
 ```sh
 git clone https://github.com/jdtoppin/edmonton-infill-tracker.git
@@ -42,7 +42,7 @@ cd edmonton-infill-tracker
 ./scripts/infill install
 ```
 
-The installer is safe to rerun: Docker named volumes are retained and an existing `.env` is not replaced or rewritten. If the initial run was interrupted before creating the administrator, the rerun asks for that password again without storing it. It stops if existing hosting settings are not loopback-only or do not match the current tailnet URL. The operator's start, restart, and update commands also refuse to proceed unless every background and foreground Funnel configuration is confirmed off; stop remains available. Use the small operator command afterward:
+The installer is safe to rerun: Docker named volumes are retained and an existing `.env` is not replaced. Secrets and account settings are preserved; only local-port and private Tailscale URL settings may be reassigned when a conflict is found. If the initial run was interrupted before creating the administrator, the rerun asks for that password again without storing it. It stops if existing hosting settings are not loopback-only or do not match the current tailnet URL. The operator's start, restart, and update commands also refuse to proceed unless every background and foreground Funnel configuration is confirmed off; stop remains available. Use the small operator command afterward:
 
 ```sh
 ./scripts/infill status
@@ -155,7 +155,7 @@ Copy `.env.example` to `.env`. Never commit the resulting file.
 | Email             | SMTP host, port, username, password, and sender                                                |
 | Optional services | Pushover credentials and `SENTRY_DSN`                                                          |
 | Processes         | Worker and scheduler intervals                                                                 |
-| Hosting           | Docker image tag, loopback bind address, Caddy address, HTTP and HTTPS ports                   |
+| Hosting           | Docker image tag, loopback bind address, Caddy address, local ports, Tailscale Serve port      |
 
 Only variables explicitly prefixed `NEXT_PUBLIC_` may reach browser code. All credentials stay server-side.
 

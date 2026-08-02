@@ -94,6 +94,34 @@ validate_port() {
     die "$port_name must be between 1 and 65535."
 }
 
+select_available_local_ports() {
+  running_caddy_id=$(docker compose ps --status running --quiet caddy 2>/dev/null || true)
+  if [ -n "$running_caddy_id" ]; then
+    say "Keeping local ports $http_port and $https_port; this install's Caddy is already running on them."
+    return
+  fi
+
+  selected_ports=$(sh "$script_dir/select-mac-ports.sh" "$http_port" "$https_port") ||
+    die "no free loopback port pair was found near $http_port and $https_port. Stop the conflicting service or set free HTTP_PORT and HTTPS_PORT values in .env, then rerun."
+  selected_http_port=${selected_ports%% *}
+  selected_https_port=${selected_ports#* }
+  validate_port HTTP_PORT "$selected_http_port"
+  validate_port HTTPS_PORT "$selected_https_port"
+  [ "$selected_http_port" != "$selected_https_port" ] ||
+    die "the automatic port check returned the same HTTP and HTTPS port."
+
+  if [ "$selected_http_port" != "$http_port" ]; then
+    say "Local HTTP port $http_port is already in use; using $selected_http_port for this app."
+    set_env_value HTTP_PORT "$selected_http_port"
+    http_port=$selected_http_port
+  fi
+  if [ "$selected_https_port" != "$https_port" ]; then
+    say "Local HTTPS port $https_port is already in use; using $selected_https_port for this app."
+    set_env_value HTTPS_PORT "$selected_https_port"
+    https_port=$selected_https_port
+  fi
+}
+
 assert_no_funnel() {
   serve_status_file=$1
   /usr/bin/plutil -convert json -o /dev/null -- "$serve_status_file" >/dev/null 2>&1 ||
@@ -115,6 +143,40 @@ assert_no_funnel() {
     die "Tailscale Funnel status could not be inspected safely."
   [ "$enabled_funnel_count" = "0" ] ||
     die "Tailscale Funnel is enabled on this Mac. Review it with 'tailscale funnel status' and disable it before installing; this installer never changes Funnel configuration."
+}
+
+app_url_for_serve_port() {
+  if [ "$1" -eq 443 ]; then
+    printf 'https://%s\n' "$dns_name"
+  else
+    printf 'https://%s:%s\n' "$dns_name" "$1"
+  fi
+}
+
+select_tailscale_serve_port() {
+  serve_status_file=$1
+  original_serve_target="http://127.0.0.1:$original_http_port"
+  if [ "$tailscale_serve_managed" = "true" ] &&
+    sh "$script_dir/select-tailscale-serve-port.sh" --verify-route \
+      "$serve_status_file" "$dns_name" "$serve_port" "$original_serve_target" \
+      >/dev/null 2>&1; then
+    selected_serve_port=$serve_port
+  else
+    selected_serve_port=$(sh "$script_dir/select-tailscale-serve-port.sh" \
+      "$serve_status_file" "$dns_name" "$serve_port") ||
+      die "a safe Tailscale Serve HTTPS port could not be selected without changing another route."
+  fi
+
+  if [ "$selected_serve_port" != "$serve_port" ]; then
+    say "Tailscale HTTPS port $serve_port is already configured and is not marked as tracker-managed; leaving that route unchanged and using $selected_serve_port for this app."
+    serve_port=$selected_serve_port
+    tailscale_serve_managed=false
+  fi
+
+  app_url=$(app_url_for_serve_port "$serve_port")
+  set_env_value TAILSCALE_SERVE_HTTPS_PORT "$serve_port"
+  set_env_value TAILSCALE_SERVE_MANAGED "$tailscale_serve_managed"
+  set_env_value APP_URL "$app_url"
 }
 
 read_secret() {
@@ -182,6 +244,8 @@ configure_new_env() {
   set_env_value HTTP_PORT 8080
   set_env_value HTTPS_PORT 8443
   set_env_value SITE_ADDRESS :80
+  set_env_value TAILSCALE_SERVE_HTTPS_PORT 443
+  set_env_value TAILSCALE_SERVE_MANAGED false
 
   unset database_password
   mv "$env_file" "$final_env_file"
@@ -189,7 +253,7 @@ configure_new_env() {
 }
 
 validate_existing_env() {
-  say "Keeping the existing .env file; no values will be rewritten."
+  say "Keeping the existing .env secrets and account settings. Only unavailable local or private Tailscale port settings may be reassigned."
   chmod 0600 "$env_file"
 
   [ "$(env_value HOST_BIND_ADDRESS)" = "127.0.0.1" ] ||
@@ -198,9 +262,6 @@ validate_existing_env() {
     die "existing .env must set SITE_ADDRESS=:80 for Tailscale TLS termination."
   [ "$(env_value AUTH_REQUIRED)" = "true" ] ||
     die "existing .env must set AUTH_REQUIRED=true."
-  [ "$(env_value APP_URL)" = "$app_url" ] ||
-    die "existing APP_URL must equal $app_url. Edit .env deliberately, then rerun."
-
   postgres_password=$(env_value POSTGRES_PASSWORD)
   [ "${#postgres_password}" -ge 24 ] ||
     die "existing POSTGRES_PASSWORD is missing or shorter than 24 characters. Rotate it deliberately before continuing."
@@ -227,6 +288,7 @@ require_command awk "Install the macOS command-line tools."
 require_command curl "Install the macOS command-line tools."
 require_command docker "Install and start Docker Desktop, then enable its CLI tools."
 require_command grep "Install the macOS command-line tools."
+require_command lsof "Install the macOS command-line tools."
 require_command mktemp "Install the macOS command-line tools."
 require_command openssl "Install the macOS command-line tools."
 require_command xmllint "Install the macOS command-line tools."
@@ -273,6 +335,27 @@ https_port=$(env_value HTTPS_PORT)
 validate_port HTTP_PORT "$http_port"
 validate_port HTTPS_PORT "$https_port"
 [ "$http_port" != "$https_port" ] || die "HTTP_PORT and HTTPS_PORT must be different."
+original_http_port=$http_port
+select_available_local_ports
+
+serve_port=$(env_value TAILSCALE_SERVE_HTTPS_PORT)
+[ -n "$serve_port" ] || serve_port=443
+validate_port TAILSCALE_SERVE_HTTPS_PORT "$serve_port"
+tailscale_serve_managed=$(env_value TAILSCALE_SERVE_MANAGED)
+[ -n "$tailscale_serve_managed" ] || tailscale_serve_managed=false
+case "$tailscale_serve_managed" in
+  true|false) ;;
+  *) die "TAILSCALE_SERVE_MANAGED must be true or false." ;;
+esac
+configured_app_url=$(app_url_for_serve_port "$serve_port")
+[ "$(env_value APP_URL)" = "$configured_app_url" ] ||
+  die "existing APP_URL must equal $configured_app_url for the configured Tailscale HTTPS port. Edit .env deliberately, then rerun."
+
+new_temporary_file
+tailscale_serve_status_file=$temporary_file
+run_tailscale serve status --json >"$tailscale_serve_status_file" 2>/dev/null ||
+  die "the installed Tailscale CLI cannot inspect existing Serve routes. Update Tailscale first."
+select_tailscale_serve_port "$tailscale_serve_status_file"
 
 say "Validating the private Docker configuration."
 docker compose config >/dev/null
@@ -313,13 +396,22 @@ else
   fi
 fi
 
-say "Publishing loopback port $http_port to this tailnet with Tailscale Serve."
-run_tailscale serve --bg --yes "http://127.0.0.1:$http_port"
+say "Publishing loopback port $http_port to this tailnet on private Tailscale HTTPS port $serve_port."
+run_tailscale serve --https="$serve_port" --bg --yes "http://127.0.0.1:$http_port"
+set_env_value TAILSCALE_SERVE_MANAGED true
 new_temporary_file
 verified_serve_status_file=$temporary_file
 run_tailscale funnel status --json >"$verified_serve_status_file" 2>/dev/null ||
   die "Tailscale Funnel state could not be verified after configuring Serve."
 assert_no_funnel "$verified_serve_status_file"
+new_temporary_file
+verified_route_status_file=$temporary_file
+run_tailscale serve status --json >"$verified_route_status_file" 2>/dev/null ||
+  die "Tailscale Serve state could not be verified after publishing the app."
+sh "$script_dir/select-tailscale-serve-port.sh" --verify-route \
+  "$verified_route_status_file" "$dns_name" "$serve_port" \
+  "http://127.0.0.1:$http_port" ||
+  die "Tailscale did not report the exact private proxy route requested by the installer."
 
 say ""
 say "Edmonton Infill Tracker is ready at $app_url"
