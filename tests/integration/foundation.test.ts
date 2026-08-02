@@ -70,6 +70,10 @@ describe("self-hosted foundation", () => {
     expect(portSelector).toContain('-iUDP:"$1"');
     expect(installer).toContain("set_env_value TAILSCALE_SERVE_HTTPS_PORT 443");
     expect(installer).toContain('set_env_value TAILSCALE_SERVE_MANAGED "$tailscale_serve_managed"');
+    expect(installer).toContain('""|3600000)');
+    expect(installer).toContain("set_env_value SCHEDULER_INTERVAL_MS 86400000");
+    expect(installer).toContain("31536000000 (one year)");
+    expect(environmentExample).toMatch(/^SCHEDULER_INTERVAL_MS=86400000$/m);
     expect(installer).toContain('sh "$script_dir/select-tailscale-serve-port.sh"');
     expect(installer).toContain('--docker-port-status "$serve_port"');
     expect(installer).toContain('serve --https="$previous_managed_serve_port" --yes off');
