@@ -156,10 +156,27 @@ app_url_for_serve_port() {
 select_tailscale_serve_port() {
   serve_status_file=$1
   original_serve_target="http://127.0.0.1:$original_http_port"
+  managed_serve_route_matches=false
   if [ "$tailscale_serve_managed" = "true" ] &&
     sh "$script_dir/select-tailscale-serve-port.sh" --verify-route \
       "$serve_status_file" "$dns_name" "$serve_port" "$original_serve_target" \
       >/dev/null 2>&1; then
+    managed_serve_route_matches=true
+  fi
+
+  managed_port_docker_status=free
+  if [ "$managed_serve_route_matches" = "true" ]; then
+    managed_port_docker_status=$(sh "$script_dir/select-tailscale-serve-port.sh" \
+      --docker-port-status "$serve_port") ||
+      die "Docker's published ports could not be checked before reusing the tracker's Tailscale route."
+    case "$managed_port_docker_status" in
+      free|in-use) ;;
+      *) die "Docker returned an unrecognized port-availability result." ;;
+    esac
+  fi
+
+  if [ "$managed_serve_route_matches" = "true" ] &&
+    [ "$managed_port_docker_status" = "free" ]; then
     selected_serve_port=$serve_port
   else
     selected_serve_port=$(sh "$script_dir/select-tailscale-serve-port.sh" \
@@ -168,7 +185,32 @@ select_tailscale_serve_port() {
   fi
 
   if [ "$selected_serve_port" != "$serve_port" ]; then
-    say "Tailscale HTTPS port $serve_port is already configured and is not marked as tracker-managed; leaving that route unchanged and using $selected_serve_port for this app."
+    if [ "$managed_serve_route_matches" = "true" ]; then
+      previous_managed_serve_port=$serve_port
+      say "Moving the tracker's verified Tailscale route from HTTPS port $previous_managed_serve_port to $selected_serve_port because another Docker service publishes the old port."
+
+      new_temporary_file
+      current_serve_status_file=$temporary_file
+      run_tailscale serve status --json >"$current_serve_status_file" 2>/dev/null ||
+        die "Tailscale Serve state could not be rechecked before moving the tracker's route."
+      sh "$script_dir/select-tailscale-serve-port.sh" --verify-route \
+        "$current_serve_status_file" "$dns_name" "$previous_managed_serve_port" \
+        "$original_serve_target" >/dev/null 2>&1 ||
+        die "the existing Tailscale route changed during installation, so it was left untouched. Rerun the installer to inspect it again."
+      run_tailscale serve --https="$previous_managed_serve_port" --yes off ||
+        die "the tracker's previous Tailscale route could not be removed safely. No unrelated route was changed."
+      new_temporary_file
+      removed_serve_status_file=$temporary_file
+      run_tailscale serve status --json >"$removed_serve_status_file" 2>/dev/null ||
+        die "Tailscale Serve state could not be verified after moving the tracker's previous route."
+      if sh "$script_dir/select-tailscale-serve-port.sh" --verify-route \
+        "$removed_serve_status_file" "$dns_name" "$previous_managed_serve_port" \
+        "$original_serve_target" >/dev/null 2>&1; then
+        die "the tracker's previous Tailscale route is still active; stop and inspect 'tailscale serve status' before rerunning."
+      fi
+    else
+      say "HTTPS port $serve_port is unavailable or is not an exclusively tracker-managed Tailscale route; leaving existing services unchanged and using $selected_serve_port for this app."
+    fi
     serve_port=$selected_serve_port
     tailscale_serve_managed=false
   fi
@@ -244,6 +286,7 @@ configure_new_env() {
   set_env_value HTTP_PORT 8080
   set_env_value HTTPS_PORT 8443
   set_env_value SITE_ADDRESS :80
+  set_env_value UPSTREAM_FORWARDED_PROTO https
   set_env_value TAILSCALE_SERVE_HTTPS_PORT 443
   set_env_value TAILSCALE_SERVE_MANAGED false
 
@@ -253,13 +296,19 @@ configure_new_env() {
 }
 
 validate_existing_env() {
-  say "Keeping the existing .env secrets and account settings. Only unavailable local or private Tailscale port settings may be reassigned."
+  say "Keeping the existing .env secrets and account settings. Only private hosting settings needed for a safe Tailscale route may be adjusted."
   chmod 0600 "$env_file"
 
   [ "$(env_value HOST_BIND_ADDRESS)" = "127.0.0.1" ] ||
     die "existing .env must set HOST_BIND_ADDRESS=127.0.0.1. The installer will not overwrite it."
   [ "$(env_value SITE_ADDRESS)" = ":80" ] ||
     die "existing .env must set SITE_ADDRESS=:80 for Tailscale TLS termination."
+  if [ -z "$(env_value UPSTREAM_FORWARDED_PROTO)" ]; then
+    say "Adding the HTTPS forwarding scheme required behind Tailscale Serve."
+    set_env_value UPSTREAM_FORWARDED_PROTO https
+  fi
+  [ "$(env_value UPSTREAM_FORWARDED_PROTO)" = "https" ] ||
+    die "existing .env must set UPSTREAM_FORWARDED_PROTO=https behind Tailscale Serve."
   [ "$(env_value AUTH_REQUIRED)" = "true" ] ||
     die "existing .env must set AUTH_REQUIRED=true."
   postgres_password=$(env_value POSTGRES_PASSWORD)

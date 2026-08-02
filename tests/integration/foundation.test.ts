@@ -9,6 +9,22 @@ describe("self-hosted foundation", () => {
     expect(compose).toContain("/api/health");
   });
 
+  it("preserves the public HTTPS scheme across the Tailscale loopback proxy", async () => {
+    const [caddyfile, compose, installer, operator, environmentExample] = await Promise.all([
+      readFile(new URL("../../deploy/Caddyfile.example", import.meta.url), "utf8"),
+      readFile(new URL("../../docker-compose.yml", import.meta.url), "utf8"),
+      readFile(new URL("../../scripts/install-mac.sh", import.meta.url), "utf8"),
+      readFile(new URL("../../scripts/infill", import.meta.url), "utf8"),
+      readFile(new URL("../../.env.example", import.meta.url), "utf8"),
+    ]);
+
+    expect(caddyfile).toContain("header_up X-Forwarded-Proto {$UPSTREAM_FORWARDED_PROTO:http}");
+    expect(compose).toContain("UPSTREAM_FORWARDED_PROTO: ${UPSTREAM_FORWARDED_PROTO:-http}");
+    expect(installer).toContain("set_env_value UPSTREAM_FORWARDED_PROTO https");
+    expect(operator).toContain("UPSTREAM_FORWARDED_PROTO");
+    expect(environmentExample).toMatch(/^UPSTREAM_FORWARDED_PROTO=http$/m);
+  });
+
   it("declares idempotency constraints in the persistent model", async () => {
     const schema = await readFile(new URL("../../prisma/schema.prisma", import.meta.url), "utf8");
     expect(schema).toContain("@@unique([sourceProvider, sourceRecordIdentifier])");
@@ -54,7 +70,20 @@ describe("self-hosted foundation", () => {
     expect(installer).toContain("set_env_value TAILSCALE_SERVE_HTTPS_PORT 443");
     expect(installer).toContain('set_env_value TAILSCALE_SERVE_MANAGED "$tailscale_serve_managed"');
     expect(installer).toContain('sh "$script_dir/select-tailscale-serve-port.sh"');
+    expect(installer).toContain('--docker-port-status "$serve_port"');
+    expect(installer).toContain('serve --https="$previous_managed_serve_port" --yes off');
+    expect(installer).toContain(
+      '"$current_serve_status_file" "$dns_name" "$previous_managed_serve_port"',
+    );
+    expect(installer.indexOf('"$current_serve_status_file" "$dns_name"')).toBeLessThan(
+      installer.indexOf('serve --https="$previous_managed_serve_port" --yes off'),
+    );
     expect(tailscalePortSelector).toContain("fallback_start_port=9443");
+    expect(tailscalePortSelector).toContain("HostConfig.PortBindings");
+    expect(tailscalePortSelector).toContain("ps --all --quiet");
+    expect(tailscalePortSelector).toContain("docker_port_in_use tcp");
+    expect(tailscalePortSelector).toContain('tcp_port_in_use "$1"');
+    expect(tailscalePortSelector).toContain('udp_port_in_use "$1"');
     expect(tailscalePortSelector).toContain("following-sibling::*[1][self::dict]");
     expect(installer).toContain("TAILSCALE_BE_CLI=1");
     expect(installer).toContain("/Applications/Tailscale.app/Contents/MacOS/Tailscale");

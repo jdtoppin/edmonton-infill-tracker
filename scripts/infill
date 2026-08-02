@@ -74,6 +74,8 @@ validate_private_env() {
     die "refusing to operate because HOST_BIND_ADDRESS is not 127.0.0.1."
   [ "$(env_value SITE_ADDRESS)" = ":80" ] ||
     die "refusing to operate because SITE_ADDRESS is not :80."
+  [ "$(env_value UPSTREAM_FORWARDED_PROTO)" = "https" ] ||
+    die "refusing to operate because UPSTREAM_FORWARDED_PROTO is not https; rerun './scripts/infill install'."
   http_port=$(env_value HTTP_PORT)
   case "$http_port" in
     ""|*[!0-9]*) die "HTTP_PORT must be numeric." ;;
