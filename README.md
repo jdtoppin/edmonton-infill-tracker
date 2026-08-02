@@ -2,7 +2,7 @@
 
 Edmonton Infill Tracker turns City of Edmonton permit records into address-level project timelines, confidence-ranked residential infill signals, and neighbourhood watchlists.
 
-Phase 1 is implemented: the repository has a responsive product shell, strict TypeScript, a full Prisma/PostGIS model and migrations, deterministic seed data, database-backed email/password sessions, configurable classification primitives, tests, CI, and a self-hosted Docker layout for a Mac mini. The dashboard currently displays synthetic fixtures; live Socrata ingestion begins in Phase 2.
+Phases 1 and 2 are implemented: the repository has a responsive product shell, strict TypeScript, a full Prisma/PostGIS model and migrations, database-backed authentication, a self-hosted Docker layout, and a guarded City of Edmonton permit-import pipeline. The dashboard still displays staged sample metrics until Phase 4 connects it to persisted imports.
 
 ## Quick start
 
@@ -30,9 +30,7 @@ docker compose -f docker-compose.dev.yml up --build
 docker compose -f docker-compose.dev.yml run --rm web npm run prisma:seed
 ```
 
-The application is available at `http://localhost:3000`, while development PostgreSQL is bound only to `127.0.0.1`. The seed is idempotent and creates synthetic Edmonton-like records, an admin, a standard user, and a saved search.
-
-Development seed defaults are documented in `.env.example`; always replace them before using the app beyond a private local machine.
+The application is available at `http://localhost:3000`, while development PostgreSQL is bound only to `127.0.0.1`. The seed is idempotent and creates synthetic Edmonton-like records, an admin, a standard user, and a saved search. Both seed passwords must be supplied explicitly; there are no fallback credentials.
 
 ## Architecture
 
@@ -53,8 +51,8 @@ flowchart LR
 - **Web app:** Next.js App Router, React, strict TypeScript, Tailwind CSS, and source-owned shadcn-style components.
 - **Database:** PostgreSQL 17 with PostGIS; Prisma 7 provides typed access through the PostgreSQL driver adapter.
 - **Domain layer:** framework-independent address normalization, permit identity, project matching, classification, confidence scoring, saved-search matching, and alert deduplication.
-- **Import layer:** provider interfaces will isolate Socrata field mappings from the domain. Raw records and normalized permit events have separate audited storage.
-- **Jobs:** Docker-compatible worker and scheduler processes use persisted job records, explicit locks, counts, and structured logs. Phase 1 includes a database health job; import and alert handlers arrive in their respective milestones.
+- **Import layer:** provider interfaces isolate Socrata field mappings from the domain. HTTPS host allowlisting, schema/revision/count guards, bounded responses, retries, raw-first persistence, canonical checksums, and row quarantine protect the normalized store.
+- **Jobs:** Docker-compatible worker and scheduler processes use persisted job records, database-enforced conflict keys, renewable leases, crash recovery, counts, and structured logs. The scheduler checks both permit datasets hourly; manual date-range backfills use the same worker path and cannot overlap an active import.
 - **Authentication:** lowercase-normalized email accounts, bcrypt password hashes, opaque random sessions stored by token hash, secure HTTP-only cookies, role checks, same-origin checks, and login throttling.
 - **Deployment:** Docker Compose runs database, migration, web, worker, scheduler, and Caddy services. PostgreSQL has no production host port.
 - **Observability:** JSON process logs, import/job histories in PostgreSQL, and `/api/health` readiness reporting without secret details.
@@ -68,6 +66,8 @@ app/                       App Router pages and server routes
 components/ui/             Reusable shadcn-style UI primitives
 src/domain/                Pure matching, classification, and alert rules
 src/lib/                   Database, auth, logging, and request security
+src/providers/             Validated City permit provider contracts and adapter
+src/services/permit-import Snapshot orchestration and audited persistence
 src/jobs/                  Docker worker and scheduler entry points
 src/cli/                   Operator commands such as backfill queuing
 prisma/                    Schema, PostGIS migrations, and synthetic seed
@@ -97,12 +97,12 @@ The Prisma source is `prisma/schema.prisma`. PostGIS is enabled before the initi
 
 ## Edmonton data assumptions
 
-The first provider will read the City of Edmonton Socrata API through configurable adapters:
+The first provider reads the City of Edmonton Socrata API through configurable adapters:
 
 - [Development Permits](https://data.edmonton.ca/Urban-Planning-Economy/Development-Permits/2ccn-pwtu), dataset `2ccn-pwtu`, covers January 2015 onward and is described as updated daily.
 - [General Building Permits](https://data.edmonton.ca/Urban-Planning-Economy/General-Building-Permits/24uj-dj8v), dataset `24uj-dj8v`, covers January 2009 onward and is described as updated daily.
 
-The implementation will not assume either schema is permanent. Provider adapters must validate fields, page results, log requests, tolerate row-level errors, store raw JSON, and advance an incremental cursor only after durable processing. Dataset IDs, API base URL, page size, rate limit, and optional Socrata token all come from environment settings.
+The implementation does not assume either schema is permanent. The City currently republishes complete snapshots, so a dataset revision only decides whether a snapshot needs processing; it is accepted only after schema validation, deterministic keyset paging, full row-count reconciliation, and durable row processing. Canonical raw-payload checksums make that process incremental at the record level. Dataset IDs, API base URL, page size, rate limit, request bounds, and optional Socrata token all come from environment settings.
 
 Additional assumptions:
 
@@ -111,8 +111,11 @@ Additional assumptions:
 - a City address may be missing a unit, postal code, coordinate, or neighbourhood;
 - neighbourhood boundaries may come from a separate public dataset;
 - permit issuance indicates approval, not proof that construction began;
+- `occupancy_granted_date` is a City-recorded progress signal with limited historical coverage; blank means “not reported,” not “not occupied”;
 - a resale prediction is an inference and cannot be described as certainty;
-- Realtor.ca or social-media comparison requires a separately authorized provider and is intentionally not implemented in Phase 1.
+- REALTOR.ca, REW, Zolo, Zealty, and social-media comparison remain disabled until an authorized provider passes the documented audit.
+
+See the [Edmonton source contract](docs/data-sources/edmonton-open-data.md) and [market-provider policy](docs/data-sources/market-provider-policy.md).
 
 ## Environment configuration
 
@@ -147,7 +150,7 @@ npm run prisma:generate
 npm run prisma:migrate:dev
 npm run prisma:migrate:deploy
 npm run prisma:seed
-npm run import:backfill -- --from=2026-01-01 --to=2026-01-31
+npm run import:backfill -- --from=2026-01-01 --to=2026-01-31 --dataset=all
 ```
 
 ## Implementation milestones
@@ -164,11 +167,11 @@ See [implementation status](docs/implementation-status.md) for the live checklis
 ## Security, licensing, and data quality
 
 - Admin authorization is enforced server-side. Login is same-origin checked and rate-limited; session cookies are HTTP-only, same-site, and secure in production.
-- Permit text must be treated as untrusted. Future ingestion must validate with Zod and UI output must remain escaped/sanitized. Raw payloads remain admin-only.
+- Permit text is treated as untrusted. Ingestion validates normalized fields with Zod, React keeps UI output escaped, and raw payloads remain admin-only.
 - PostgreSQL is isolated on a private production Docker network. Expose only Caddy, and use HTTPS before access over untrusted networks.
 - The app does not treat a confidence score as fact. Every score stores structured evidence and the UI must use qualified wording.
 - City datasets are provided without warranty and can change. Preserve source timestamps, raw payloads, and attribution; review the [City of Edmonton Open Data licence](https://data.edmonton.ca/stories/s/City-of-Edmonton-Open-Data-Terms-of-Use/msh8-if28/) before distribution.
-- Confirm Mapbox terms for the selected plan and do not scrape Realtor.ca or social networks without an authorized data source and legal review.
+- Confirm Mapbox terms for the selected plan. Do not automate market or social sources until an official API or connector passes the [provider audit](docs/data-sources/market-provider-policy.md).
 - Do not include production addresses, user emails, raw records, tokens, or `.env` values in fixtures, issues, screenshots, or logs.
 
 ## Operations and contribution docs

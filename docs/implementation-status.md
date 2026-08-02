@@ -19,13 +19,15 @@ Updated: 2026-08-01
 
 ## Phase 2 — Permit ingestion
 
-- [ ] Define the `PermitDataProvider` contract and normalized Zod schemas.
-- [ ] Implement development- and building-permit Socrata adapters.
-- [ ] Add pagination, retry/backoff, rate limiting, and request logs.
-- [ ] Persist raw records before normalized records.
-- [ ] Implement idempotent incremental imports and date-range backfills.
-- [ ] Add per-record failure isolation and import summaries.
-- [ ] Add import integration tests with fixture API responses.
+- [x] Define the `PermitDataProvider` contract and normalized Zod schemas.
+- [x] Implement development- and building-permit Socrata adapters.
+- [x] Add revision-safe keyset pagination, retry/backoff, rate limiting, request bounds, and structured logs.
+- [x] Persist raw records before normalized records.
+- [x] Implement idempotent snapshot comparison and date-range backfill jobs.
+- [x] Add per-record quarantine, duplicate/schema/count guards, and import summaries.
+- [x] Track City-reported occupancy dates as a distinct building-permit milestone.
+- [x] Add fixture-based provider/import tests and PostgreSQL persistence coverage.
+- [ ] Run the first complete City snapshot on the target Mac mini and review the quarantine queue.
 
 ## Phase 3 — Project intelligence
 

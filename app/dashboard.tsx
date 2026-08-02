@@ -91,12 +91,13 @@ const projects: Project[] = [
 ];
 
 const stats = {
-  "7 days": [8, 5, 2, 6],
-  "30 days": [31, 19, 7, 21],
-  "90 days": [84, 51, 18, 58],
+  "7 days": { development: 8, building: 5, occupancy: 2 },
+  "30 days": { development: 31, building: 19, occupancy: 7 },
+  "90 days": { development: 84, building: 51, occupancy: 18 },
 } as const;
 
 type Period = keyof typeof stats;
+type PeriodStats = (typeof stats)[Period];
 
 const navItems = [
   { label: "Overview", icon: LayoutDashboard, active: true },
@@ -216,7 +217,7 @@ function Topbar() {
       </div>
       <div className="topbar-actions">
         <div className="sync-state">
-          <span /> Data current to Aug 1, 6:10 AM
+          <span /> Sample data · Phase 2 preview
         </div>
         <Button
           variant="secondary"
@@ -232,30 +233,68 @@ function Topbar() {
   );
 }
 
-function MetricCard({
-  label,
-  value,
-  detail,
-  icon: Icon,
-  accent,
-}: {
-  label: string;
-  value: number;
-  detail: string;
-  icon: typeof Building2;
-  accent?: boolean;
-}) {
+function LifecycleSummary({ period, values }: { period: Period; values: PeriodStats }) {
+  const milestones = [
+    {
+      label: "Development permits",
+      value: values.development,
+      detail: "Planning approvals recorded by the City.",
+      icon: MapPin,
+      tone: "development",
+    },
+    {
+      label: "Building permits",
+      value: values.building,
+      detail: "Building permits issued and recorded by the City.",
+      icon: Building2,
+      tone: "building",
+    },
+    {
+      label: "Occupancy granted",
+      value: values.occupancy,
+      detail: "City records indicating occupancy was granted.",
+      icon: CircleCheck,
+      tone: "occupancy",
+    },
+  ] as const;
+
   return (
-    <Card className={cn("metric-card", accent && "metric-accent")}>
-      <div className="metric-head">
-        <span>{label}</span>
-        <div className="metric-icon">
-          <Icon size={17} />
+    <Card className="lifecycle-card" role="region" aria-labelledby="lifecycle-title">
+      <div className="lifecycle-head">
+        <div>
+          <div className="eyebrow">Project lifecycle</div>
+          <h2 id="lifecycle-title">From first approval to occupancy</h2>
+          <p>New City-recorded milestones in your watchlist during the selected period.</p>
         </div>
+        <span className="lifecycle-period">Past {period}</span>
       </div>
-      <div className="metric-value">{value}</div>
-      <div className="metric-detail">
-        <ArrowUpRight size={14} /> {detail}
+
+      <ol className="lifecycle-steps" aria-label={`Milestones recorded in the past ${period}`}>
+        {milestones.map(({ label, value, detail, icon: Icon, tone }, index) => (
+          <li className={cn("lifecycle-step", tone)} key={label}>
+            <div className="milestone-head">
+              <span className="milestone-icon" aria-hidden="true">
+                <Icon size={18} />
+              </span>
+              <span className="milestone-order">0{index + 1}</span>
+            </div>
+            <div className="milestone-count">
+              <strong>{value}</strong>
+              <span>records</span>
+            </div>
+            <h3>{label}</h3>
+            <p>{detail}</p>
+          </li>
+        ))}
+      </ol>
+
+      <div className="lifecycle-note">
+        <Database size={17} aria-hidden="true" />
+        <p>
+          <strong>How to read this:</strong> These are City of Edmonton-recorded signals of project
+          progress. “Occupancy granted” is not an independent safety, habitability, or permitted-use
+          certification by Infill Tracker.
+        </p>
       </div>
     </Card>
   );
@@ -491,12 +530,10 @@ function ActivityFeed() {
       <div className="health-strip">
         <Database size={18} />
         <div>
-          <strong>Import healthy</strong>
-          <span>1,284 records checked · 17 updated · 0 failed</span>
+          <strong>Importer implemented</strong>
+          <span>Fixture records remain visible until the live dashboard connection.</span>
         </div>
-        <Badge tone="green">
-          <span className="status-dot" /> Synced
-        </Badge>
+        <Badge tone="neutral">Preview</Badge>
       </div>
     </Card>
   );
@@ -577,10 +614,10 @@ export function Dashboard() {
                 <span className="kicker-divider" />
                 Overview
               </div>
-              <h1>Eight promising infill signals surfaced this week.</h1>
+              <h1>Follow infill projects from first approval to occupancy.</h1>
               <p>
-                Permit activity across your watchlist, organized into projects and ranked by
-                evidence.
+                City-recorded permit milestones across your watchlist, organized into projects and
+                ranked by evidence.
               </p>
             </div>
             <div className="hero-actions">
@@ -606,33 +643,7 @@ export function Dashboard() {
             ))}
           </div>
 
-          <section className="metric-grid" aria-label="Project summary">
-            <MetricCard
-              label="New projects"
-              value={currentStats[0]}
-              detail="3 more than prior period"
-              icon={Building2}
-              accent
-            />
-            <MetricCard
-              label="High confidence"
-              value={currentStats[1]}
-              detail="63% of new signals"
-              icon={Sparkles}
-            />
-            <MetricCard
-              label="Demolitions"
-              value={currentStats[2]}
-              detail="2 have follow-on permits"
-              icon={Hammer}
-            />
-            <MetricCard
-              label="Monitored matches"
-              value={currentStats[3]}
-              detail="Across 3 neighbourhoods"
-              icon={Bell}
-            />
-          </section>
+          <LifecycleSummary period={period} values={currentStats} />
 
           <ActivityMap selected={selected} setSelected={setSelected} />
           <SignalList />
@@ -645,10 +656,10 @@ export function Dashboard() {
           <section className="notice" aria-label="Data quality notice">
             <AlertTriangle size={18} />
             <div>
-              <strong>One source is running behind.</strong>
+              <strong>Live overview connection is next.</strong>
               <span>
-                Development permit data is current; building permit updates are approximately 6
-                hours delayed.
+                Permit ingestion is ready; these overview cards still use staged sample data until
+                Phase 4.
               </span>
             </div>
             <Button variant="ghost" size="sm">

@@ -82,11 +82,18 @@ async function main() {
     .toLowerCase();
   const userEmail = (process.env.SEED_USER_EMAIL ?? "user@infill.local").trim().toLowerCase();
 
-  // These defaults are deliberately development-only placeholders. bcrypt hashes,
-  // rather than plaintext passwords, are the only credentials written to the DB.
+  const adminPassword = process.env.SEED_ADMIN_PASSWORD;
+  const userPassword = process.env.SEED_USER_PASSWORD;
+  if (!adminPassword || !userPassword || adminPassword.length < 16 || userPassword.length < 16) {
+    throw new Error(
+      "SEED_ADMIN_PASSWORD and SEED_USER_PASSWORD must each contain at least 16 characters; seed credentials never use fallback values.",
+    );
+  }
+
+  // Only bcrypt hashes, rather than plaintext passwords, are written to the DB.
   const [adminPasswordHash, userPasswordHash] = await Promise.all([
-    hash(process.env.SEED_ADMIN_PASSWORD ?? "change-me-admin", 12),
-    hash(process.env.SEED_USER_PASSWORD ?? "change-me-user", 12),
+    hash(adminPassword, 12),
+    hash(userPassword, 12),
   ]);
 
   await db.$transaction(async (tx) => {
