@@ -106,6 +106,8 @@ export class EdmontonSocrataPermitProvider implements PermitDataProvider {
   private readonly onRequest: ((event: ProviderRequestLog) => void) | undefined;
   private readonly descriptors: Record<PermitDataset, DatasetDescriptor>;
   private nextRequestAt = 0;
+  private retryAfterUntil = 0;
+  private retryAfterVersion = 0;
 
   constructor(options: EdmontonSocrataPermitProviderOptions = {}) {
     const parsedBaseUrl = new URL(options.baseUrl ?? DEFAULT_BASE_URL);
@@ -339,6 +341,9 @@ export class EdmontonSocrataPermitProvider implements PermitDataProvider {
         const durationMs = Date.now() - startedAt;
 
         if (!response.ok) {
+          const retryAfterMs = parseRetryAfter(response.headers.get("retry-after"));
+          this.deferRequests(retryAfterMs);
+          await cancelResponseBody(response);
           const retryable = isRetryableStatus(response.status) && attempt <= this.retryLimit;
           this.onRequest?.({
             sourceDataset: dataset,
@@ -354,12 +359,13 @@ export class EdmontonSocrataPermitProvider implements PermitDataProvider {
               response.status,
             );
           }
-          await this.retryDelay(attempt, response.headers.get("retry-after"), signal);
+          await this.retryDelay(attempt, retryAfterMs, signal);
           continue;
         }
 
         const declaredLength = Number(response.headers.get("content-length"));
         if (Number.isFinite(declaredLength) && declaredLength > this.maxResponseBytes) {
+          await cancelResponseBody(response);
           throw new ProviderResponseError(
             "Socrata response exceeded the configured size limit.",
             response.status,
@@ -401,7 +407,7 @@ export class EdmontonSocrataPermitProvider implements PermitDataProvider {
           outcome: retryable ? "retrying" : "failed",
         });
         if (!retryable) break;
-        await this.retryDelay(attempt, null, signal);
+        await this.retryDelay(attempt, 0, signal);
       } finally {
         clearTimeout(timeout);
       }
@@ -414,18 +420,33 @@ export class EdmontonSocrataPermitProvider implements PermitDataProvider {
   }
 
   private async waitForRateLimit(signal?: AbortSignal): Promise<void> {
-    const now = Date.now();
-    const waitMs = Math.max(0, this.nextRequestAt - now);
-    this.nextRequestAt = Math.max(now, this.nextRequestAt) + this.minimumRequestIntervalMs;
-    if (waitMs > 0) await this.sleepImplementation(waitMs, signal);
+    while (true) {
+      const now = Date.now();
+      const retryAfterVersion = this.retryAfterVersion;
+      const requestAt = Math.max(now, this.nextRequestAt, this.retryAfterUntil);
+      this.nextRequestAt = requestAt + this.minimumRequestIntervalMs;
+      const waitMs = requestAt - now;
+      if (waitMs > 0) await this.sleepImplementation(waitMs, signal);
+
+      // A Retry-After response may arrive while this request is already
+      // waiting. Reserve a fresh slot beyond the extended shared gate.
+      if (retryAfterVersion === this.retryAfterVersion) return;
+    }
+  }
+
+  private deferRequests(milliseconds: number): void {
+    if (milliseconds <= 0) return;
+    const deferredUntil = Date.now() + milliseconds;
+    if (deferredUntil <= this.retryAfterUntil) return;
+    this.retryAfterUntil = deferredUntil;
+    this.retryAfterVersion += 1;
   }
 
   private async retryDelay(
     attempt: number,
-    retryAfter: string | null,
+    retryAfterMs: number,
     signal?: AbortSignal,
   ): Promise<void> {
-    const retryAfterMs = parseRetryAfter(retryAfter);
     const exponentialMs = Math.min(30_000, 500 * 2 ** (attempt - 1));
     const jitterMs = Math.floor(exponentialMs * 0.25 * this.random());
     await this.sleepImplementation(Math.max(retryAfterMs, exponentialMs + jitterMs), signal);
@@ -775,6 +796,15 @@ function toJsonObject(value: Record<string, unknown>): RawPermitPayload {
     Object.entries(value).filter(([fieldName]) => !fieldName.startsWith(":")),
   );
   return JSON.parse(JSON.stringify(businessFields)) as RawPermitPayload;
+}
+
+async function cancelResponseBody(response: Response): Promise<void> {
+  if (!response.body) return;
+  try {
+    await response.body.cancel();
+  } catch {
+    // Releasing an error response is best effort; preserve the HTTP failure.
+  }
 }
 
 async function readBoundedBody(response: Response, maximumBytes: number): Promise<Uint8Array> {

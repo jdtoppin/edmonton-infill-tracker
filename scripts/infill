@@ -1,0 +1,366 @@
+#!/bin/sh
+set -eu
+
+script_dir=$(CDPATH= cd -P "$(dirname "$0")" && pwd)
+repo_dir=$(CDPATH= cd -P "$script_dir/.." && pwd)
+env_file="$repo_dir/.env"
+terminal_echo_off=0
+operator_lock_dir="$repo_dir/backups/.operator-lock"
+operator_lock_held=0
+
+restore_terminal() {
+  if [ "$terminal_echo_off" -eq 1 ]; then
+    stty echo 2>/dev/null || true
+  fi
+}
+
+cleanup() {
+  restore_terminal
+  if [ "$operator_lock_held" -eq 1 ]; then
+    rm -f "$operator_lock_dir/pid"
+    rmdir "$operator_lock_dir" 2>/dev/null || true
+  fi
+}
+trap cleanup EXIT
+trap 'exit 130' HUP INT TERM
+
+die() {
+  printf 'Error: %s\n' "$*" >&2
+  exit 1
+}
+
+usage() {
+  cat <<'EOF'
+Usage: ./scripts/infill COMMAND [ARGUMENTS]
+
+Commands:
+  install          Run the guided Mac mini installer
+  status           Show containers, local health, and Tailscale Serve status
+  start            Start existing services without rebuilding or deleting data
+  stop             Stop services while preserving all volumes
+  restart          Restart application services without restarting PostgreSQL
+  update           Back up, fast-forward from GitHub, migrate, and restart safely
+  import FROM TO [DATASET]
+                   Queue a historical import (dataset: all, development, building)
+  logs [SERVICE]   Follow recent logs (db, migrate, web, worker, scheduler, caddy)
+  backup           Create and verify a private PostgreSQL backup
+  bootstrap-admin  Create/promote/reset the configured administrator without demo data
+  help             Show this help
+EOF
+}
+
+read_secret() {
+  prompt=$1
+  printf '%s' "$prompt"
+  terminal_echo_off=1
+  stty -echo
+  IFS= read -r secret_reply
+  stty echo
+  terminal_echo_off=0
+  printf '\n'
+}
+
+env_value() {
+  key=$1
+  awk -v prefix="$key=" '
+    index($0, prefix) == 1 { value = substr($0, length(prefix) + 1); found = 1 }
+    END { if (found) print value }
+  ' "$env_file"
+}
+
+validate_private_env() {
+  [ -f "$env_file" ] || die ".env is missing; run './scripts/infill install'."
+  [ "$(env_value HOST_BIND_ADDRESS)" = "127.0.0.1" ] ||
+    die "refusing to operate because HOST_BIND_ADDRESS is not 127.0.0.1."
+  [ "$(env_value SITE_ADDRESS)" = ":80" ] ||
+    die "refusing to operate because SITE_ADDRESS is not :80."
+  http_port=$(env_value HTTP_PORT)
+  case "$http_port" in
+    ""|*[!0-9]*) die "HTTP_PORT must be numeric." ;;
+  esac
+  [ "$http_port" -ge 1 ] && [ "$http_port" -le 65535 ] || die "HTTP_PORT is invalid."
+}
+
+find_tailscale() {
+  if command -v tailscale >/dev/null 2>&1; then
+    tailscale_bin=$(command -v tailscale)
+  elif [ -x /Applications/Tailscale.app/Contents/MacOS/Tailscale ]; then
+    tailscale_bin=/Applications/Tailscale.app/Contents/MacOS/Tailscale
+  else
+    return 1
+  fi
+}
+
+tailscale() {
+  TAILSCALE_BE_CLI=1 "$tailscale_bin" "$@"
+}
+
+inspect_funnel() {
+  funnel_error=""
+  funnel_json=""
+  funnel_plist=""
+
+  if ! find_tailscale; then
+    funnel_error="Tailscale CLI is unavailable."
+    return 2
+  fi
+  if ! funnel_json=$(tailscale funnel status --json 2>/dev/null); then
+    funnel_error="Tailscale Funnel status could not be verified."
+    return 2
+  fi
+  if [ -z "$funnel_json" ] ||
+    ! printf '%s\n' "$funnel_json" | \
+      /usr/bin/plutil -convert json -o /dev/null - >/dev/null 2>&1; then
+    funnel_error="Tailscale returned an unreadable Funnel status."
+    return 2
+  fi
+  if [ ! -x /usr/bin/xmllint ] ||
+    ! funnel_plist=$(printf '%s\n' "$funnel_json" | \
+      /usr/bin/plutil -convert xml1 -o - - 2>/dev/null); then
+    funnel_error="Tailscale Funnel status could not be inspected safely."
+    return 2
+  fi
+  invalid_funnel_count=$(printf '%s\n' "$funnel_plist" | \
+    /usr/bin/xmllint --nonet --xpath \
+      'count(//key[text()="AllowFunnel"][not(following-sibling::*[1][self::dict])]) + count(//key[text()="AllowFunnel"]/following-sibling::*[1][self::dict]/*[not(self::key or self::true or self::false)])' \
+      - 2>/dev/null) || {
+    funnel_error="Tailscale Funnel status could not be inspected safely."
+    return 2
+  }
+  if [ "$invalid_funnel_count" != "0" ]; then
+    funnel_error="Tailscale returned an unrecognized Funnel status."
+    return 2
+  fi
+  enabled_funnel_count=$(printf '%s\n' "$funnel_plist" | \
+    /usr/bin/xmllint --nonet --xpath \
+      'count(//key[text()="AllowFunnel"]/following-sibling::*[1][self::dict]/true)' \
+      - 2>/dev/null) || {
+    funnel_error="Tailscale Funnel status could not be inspected safely."
+    return 2
+  }
+  if [ "$enabled_funnel_count" != "0" ]; then
+    return 1
+  fi
+  return 0
+}
+
+require_funnel_off() {
+  operation=$1
+  if inspect_funnel; then
+    return 0
+  else
+    funnel_result=$?
+  fi
+
+  if [ "$funnel_result" -eq 1 ]; then
+    die "refusing to $operation because Tailscale Funnel is enabled. Disable Funnel and verify 'tailscale funnel status' before retrying."
+  fi
+  die "refusing to $operation because Funnel state could not be verified: $funnel_error"
+}
+
+acquire_operator_lock() {
+  mkdir -p "$repo_dir/backups"
+  chmod 0700 "$repo_dir/backups"
+  if ! mkdir "$operator_lock_dir" 2>/dev/null; then
+    lock_pid=""
+    if [ -f "$operator_lock_dir/pid" ]; then
+      IFS= read -r lock_pid <"$operator_lock_dir/pid" || true
+    fi
+    case "$lock_pid" in
+      ""|*[!0-9]*) ;;
+      *)
+        if kill -0 "$lock_pid" 2>/dev/null; then
+          die "another guarded operator command is already running (process $lock_pid)."
+        fi
+        ;;
+    esac
+    die "a stale operator lock remains at backups/.operator-lock. After confirming no guarded operator command is running, remove its pid file and then the empty lock directory before retrying."
+  fi
+  operator_lock_held=1
+  chmod 0700 "$operator_lock_dir"
+  printf '%s\n' "$$" >"$operator_lock_dir/pid"
+  chmod 0600 "$operator_lock_dir/pid"
+}
+
+validate_civil_date() {
+  date_label=$1
+  date_value=$2
+  case "$date_value" in
+    [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]) ;;
+    *) die "$date_label must use YYYY-MM-DD." ;;
+  esac
+
+  normalized_date=$(/bin/date -j -f '%Y-%m-%d' "$date_value" '+%Y-%m-%d' 2>/dev/null) ||
+    die "$date_label must be a real calendar date."
+  [ "$normalized_date" = "$date_value" ] ||
+    die "$date_label must be a real calendar date."
+  civil_date_epoch=$(/bin/date -j -f '%Y-%m-%d' "$date_value" '+%s' 2>/dev/null) ||
+    die "$date_label could not be compared."
+}
+
+show_status() {
+  result=0
+  docker compose ps || result=1
+  if curl --fail --silent "http://127.0.0.1:$http_port/api/health" >/dev/null 2>&1; then
+    printf 'Local health: healthy (127.0.0.1:%s)\n' "$http_port"
+  else
+    printf 'Local health: unavailable (127.0.0.1:%s)\n' "$http_port" >&2
+    result=1
+  fi
+
+  if find_tailscale; then
+    serve_status=$(tailscale serve status 2>&1) || {
+      printf '%s\n' "$serve_status" >&2
+      result=1
+      serve_status=""
+    }
+    if [ -n "$serve_status" ]; then
+      printf '%s\n' "$serve_status"
+    fi
+    if inspect_funnel; then
+      printf '%s\n' "Tailscale Funnel: off"
+    else
+      funnel_result=$?
+      if [ "$funnel_result" -eq 1 ]; then
+        printf '%s\n' "SECURITY WARNING: Tailscale Funnel is enabled." >&2
+      else
+        printf '%s\n' "$funnel_error" >&2
+      fi
+      result=1
+    fi
+  else
+    printf '%s\n' "Tailscale CLI: unavailable" >&2
+    result=1
+  fi
+  return "$result"
+}
+
+command_name=${1:-help}
+if [ "$#" -gt 0 ]; then
+  shift
+fi
+
+cd "$repo_dir"
+
+case "$command_name" in
+  help|-h|--help)
+    usage
+    ;;
+  install)
+    [ "$#" -eq 0 ] || die "install takes no arguments."
+    exec sh "$script_dir/install-mac.sh"
+    ;;
+  status|start|stop|restart|update|import|logs|backup|bootstrap-admin)
+    command -v docker >/dev/null 2>&1 || die "Docker CLI is unavailable."
+    docker compose version >/dev/null 2>&1 || die "Docker Compose v2 is unavailable."
+    validate_private_env
+    case "$command_name" in
+      status)
+        [ "$#" -eq 0 ] || die "status takes no arguments."
+        show_status
+        ;;
+      start)
+        [ "$#" -eq 0 ] || die "start takes no arguments."
+        require_funnel_off "start services"
+        acquire_operator_lock
+        docker compose up -d
+        ;;
+      stop)
+        [ "$#" -eq 0 ] || die "stop takes no arguments."
+        docker compose stop
+        ;;
+      restart)
+        [ "$#" -eq 0 ] || die "restart takes no arguments."
+        require_funnel_off "restart services"
+        acquire_operator_lock
+        docker compose restart web worker scheduler caddy
+        ;;
+      update)
+        [ "$#" -eq 0 ] || die "update takes no arguments."
+        command -v git >/dev/null 2>&1 || die "Git is unavailable."
+        require_funnel_off "update"
+        acquire_operator_lock
+        [ -z "$(git status --porcelain)" ] ||
+          die "the repository has local changes; preserve or commit them before updating."
+        sh "$script_dir/backup-postgres.sh"
+        git fetch --prune
+        git pull --ff-only
+        docker compose build --pull
+        docker compose pull caddy
+        docker compose stop caddy web worker scheduler
+        if ! docker compose run --rm migrate; then
+          printf '%s\n' \
+            "Update stopped because the database migration failed." \
+            "PostgreSQL remains running, but caddy, web, worker, and scheduler remain stopped." \
+            "Review the migration output above and the database logs. Fix the cause and rerun './scripts/infill update'." \
+            "To roll back, restore the verified pre-update backup before starting the previous application version." >&2
+          exit 1
+        fi
+        require_funnel_off "start updated services"
+        docker compose up -d --remove-orphans
+        show_status
+        ;;
+      import)
+        [ "$#" -ge 2 ] && [ "$#" -le 3 ] ||
+          die "import requires FROM and TO dates, plus an optional dataset."
+        from_date=$1
+        to_date=$2
+        dataset=${3:-all}
+        validate_civil_date FROM "$from_date"
+        from_epoch=$civil_date_epoch
+        validate_civil_date TO "$to_date"
+        to_epoch=$civil_date_epoch
+        [ "$from_epoch" -le "$to_epoch" ] || die "FROM must be on or before TO."
+        case "$dataset" in
+          all|development|building) ;;
+          *) die "dataset must be all, development, or building." ;;
+        esac
+        acquire_operator_lock
+        docker compose run --rm --no-deps worker npm run import:backfill -- \
+          "--from=$from_date" "--to=$to_date" "--dataset=$dataset"
+        ;;
+      logs)
+        [ "$#" -le 1 ] || die "logs accepts at most one service name."
+        if [ "$#" -eq 1 ]; then
+          case "$1" in
+            db|migrate|web|worker|scheduler|caddy) ;;
+            *) die "unknown service '$1'." ;;
+          esac
+          exec docker compose logs --follow --tail=200 "$1"
+        fi
+        exec docker compose logs --follow --tail=200
+        ;;
+      backup)
+        [ "$#" -eq 0 ] || die "backup takes no arguments."
+        acquire_operator_lock
+        sh "$script_dir/backup-postgres.sh"
+        ;;
+      bootstrap-admin)
+        [ "$#" -eq 0 ] || die "bootstrap-admin takes no arguments."
+        [ -t 0 ] || die "bootstrap-admin requires an interactive Terminal."
+        while :; do
+          read_secret "New administrator password (16+ characters, 72-byte maximum; input is hidden): "
+          admin_password=$secret_reply
+          password_bytes=$(LC_ALL=C printf '%s' "$admin_password" | wc -c | awk '{ print $1 }')
+          if [ "${#admin_password}" -lt 16 ] || [ "$password_bytes" -gt 72 ]; then
+            printf '%s\n' "The password must contain at least 16 characters and no more than 72 UTF-8 bytes."
+            continue
+          fi
+          read_secret "Confirm administrator password: "
+          [ "$admin_password" = "$secret_reply" ] && break
+          printf '%s\n' "The passwords did not match."
+        done
+        acquire_operator_lock
+        INITIAL_ADMIN_PASSWORD="$admin_password" RESET_INITIAL_ADMIN_PASSWORD=true \
+          docker compose run --rm --no-deps \
+            -e INITIAL_ADMIN_PASSWORD -e RESET_INITIAL_ADMIN_PASSWORD \
+            web npm run admin:bootstrap
+        unset admin_password secret_reply
+        ;;
+    esac
+    ;;
+  *)
+    usage >&2
+    exit 2
+    ;;
+esac

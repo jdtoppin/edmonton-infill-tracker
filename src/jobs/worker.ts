@@ -10,6 +10,12 @@ import {
   type ClaimedJob,
 } from "./job-lease";
 import { jobDate, parsePermitImportJobMetadata } from "./permit-import-job";
+import { completeProjectPipelineStage } from "./project-pipeline";
+import {
+  runProjectMatchingJob,
+  runProjectReclassificationJob,
+  type ProjectIntelligenceJobResult,
+} from "./project-intelligence-job";
 
 const pollMs = Number(process.env.WORKER_POLL_INTERVAL_MS ?? 15_000);
 const jobLeaseMs = Number(process.env.WORKER_JOB_LEASE_MS ?? 120_000);
@@ -61,11 +67,38 @@ async function extendJobLease(job: ClaimedJob, controller: AbortController): Pro
   }
 }
 
+async function completeProjectIntelligenceJob(
+  job: ClaimedJob,
+  result: ProjectIntelligenceJobResult,
+): Promise<boolean> {
+  const db = await getDb();
+  const status =
+    result.failed === 0
+      ? RunStatus.SUCCEEDED
+      : result.successful === 0
+        ? RunStatus.FAILED
+        : RunStatus.PARTIALLY_SUCCEEDED;
+  return completeProjectPipelineStage(db, job, {
+    status,
+    processedCount: result.processed,
+    successfulCount: result.successful,
+    failedCount: result.failed,
+    errorSummary:
+      result.failed > 0
+        ? `${result.failed} record${result.failed === 1 ? "" : "s"} could not be processed.`
+        : null,
+  });
+}
+
 async function processJob(job: ClaimedJob) {
   const db = await getDb();
   const controller = new AbortController();
   activeJobController = controller;
   let heartbeatActive = false;
+  let importProcessedCount = 0;
+  let importSuccessfulCount = 0;
+  let importFailedCount = 0;
+  const importFailures: string[] = [];
   const heartbeat = setInterval(() => {
     if (heartbeatActive) return;
     heartbeatActive = true;
@@ -104,6 +137,31 @@ async function processJob(job: ClaimedJob) {
       return;
     }
 
+    if (
+      job.jobType === JobType.PROJECT_MATCHING ||
+      job.jobType === JobType.PROJECT_RECLASSIFICATION
+    ) {
+      const result =
+        job.jobType === JobType.PROJECT_MATCHING
+          ? await runProjectMatchingJob(db, controller.signal, {
+              jobRunId: job.id,
+              leaseToken: job.lockKey,
+            })
+          : await runProjectReclassificationJob(db, controller.signal, {
+              jobRunId: job.id,
+              leaseToken: job.lockKey,
+            });
+      if (!(await completeProjectIntelligenceJob(job, result))) {
+        throw new Error("The worker lost its job lease before pipeline handoff.");
+      }
+      log("info", "job.completed", {
+        jobId: job.id,
+        jobType: job.jobType,
+        ...result,
+      });
+      return;
+    }
+
     if (job.jobType !== JobType.INCREMENTAL_PERMIT_IMPORT) {
       throw new Error(`No handler is registered for ${job.jobType}.`);
     }
@@ -125,11 +183,7 @@ async function processJob(job: ClaimedJob) {
       jobRunId: job.id,
       leaseToken: job.lockKey,
     });
-    let processedCount = 0;
-    let successfulCount = 0;
-    let failedCount = 0;
     let partial = false;
-    const failures: string[] = [];
 
     for (const dataset of metadata.datasets) {
       try {
@@ -158,14 +212,15 @@ async function processJob(job: ClaimedJob) {
             }
           },
         });
-        processedCount += result.counts.fetched;
-        successfulCount += result.counts.created + result.counts.updated + result.counts.skipped;
-        failedCount += result.counts.failed;
+        importProcessedCount += result.counts.fetched;
+        importSuccessfulCount +=
+          result.counts.created + result.counts.updated + result.counts.skipped;
+        importFailedCount += result.counts.failed;
         partial ||= result.status === "PARTIALLY_SUCCEEDED";
       } catch (error) {
-        partial ||= successfulCount > 0 || processedCount > 0;
-        failedCount += 1;
-        failures.push(`${dataset}:${error instanceof Error ? error.name : "UnknownError"}`);
+        partial ||= importSuccessfulCount > 0 || importProcessedCount > 0;
+        importFailedCount += 1;
+        importFailures.push(`${dataset}:${error instanceof Error ? error.name : "UnknownError"}`);
         log("error", "permit-import.dataset-failed", {
           jobId: job.id,
           dataset,
@@ -176,29 +231,49 @@ async function processJob(job: ClaimedJob) {
     }
 
     const status =
-      controller.signal.aborted || failures.length === metadata.datasets.length
+      controller.signal.aborted || importFailures.length === metadata.datasets.length
         ? RunStatus.FAILED
-        : partial || failedCount > 0
+        : partial || importFailedCount > 0
           ? RunStatus.PARTIALLY_SUCCEEDED
           : RunStatus.SUCCEEDED;
-    await db.jobRun.updateMany({
-      where: { id: job.id, status: RunStatus.RUNNING, lockKey: job.lockKey },
-      data: {
-        status,
-        lockKey: null,
-        conflictKey: null,
-        heartbeatAt: null,
-        lockExpiresAt: null,
-        processedCount,
-        successfulCount,
-        failedCount,
-        completedAt: new Date(),
-        errorSummary: failures.length > 0 ? failures.join(", ").slice(0, 1_000) : null,
-      },
+    const completed = await completeProjectPipelineStage(db, job, {
+      status,
+      processedCount: importProcessedCount,
+      successfulCount: importSuccessfulCount,
+      failedCount: importFailedCount,
+      errorSummary: importFailures.length > 0 ? importFailures.join(", ").slice(0, 1_000) : null,
     });
+    if (!completed) throw new Error("The worker lost its job lease before pipeline handoff.");
     log("info", "job.completed", { jobId: job.id, jobType: job.jobType });
   } catch (error) {
     const errorName = error instanceof Error ? error.name : "UnknownError";
+    const isProjectPipelineJob =
+      job.jobType === JobType.INCREMENTAL_PERMIT_IMPORT ||
+      job.jobType === JobType.PROJECT_MATCHING ||
+      job.jobType === JobType.PROJECT_RECLASSIFICATION;
+    if (isProjectPipelineJob) {
+      try {
+        const completed = await completeProjectPipelineStage(db, job, {
+          status: RunStatus.FAILED,
+          processedCount:
+            job.jobType === JobType.INCREMENTAL_PERMIT_IMPORT ? importProcessedCount : 0,
+          successfulCount:
+            job.jobType === JobType.INCREMENTAL_PERMIT_IMPORT ? importSuccessfulCount : 0,
+          failedCount:
+            job.jobType === JobType.INCREMENTAL_PERMIT_IMPORT ? importFailedCount + 1 : 1,
+          errorSummary: `Job failed with ${errorName}.`,
+        });
+        if (completed) {
+          log("error", "job.failed", { jobId: job.id, jobType: job.jobType });
+          return;
+        }
+      } catch (handoffError) {
+        log("error", "job.pipeline-handoff-failed", {
+          jobId: job.id,
+          errorName: handoffError instanceof Error ? handoffError.name : "UnknownError",
+        });
+      }
+    }
     await db.jobRun.updateMany({
       where: { id: job.id, status: RunStatus.RUNNING, lockKey: job.lockKey },
       data: {

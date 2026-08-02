@@ -12,6 +12,7 @@ import type {
 } from "../../src/providers";
 import {
   canonicalJson,
+  checksumPermitPayload,
   PermitPersistenceError,
   runPermitImport,
   SnapshotRowCountError,
@@ -223,6 +224,38 @@ describe("permit snapshot import runner", () => {
     expect(canonicalJson({ b: 2, a: { z: true, y: null } })).toBe(
       canonicalJson({ a: { y: null, z: true }, b: 2 }),
     );
+  });
+
+  it("ignores volatile Socrata system metadata when detecting permit changes", async () => {
+    expect(
+      checksumPermitPayload({ row_id: "row-1", address: "10001 100 ST NW", ":id": "one" }),
+    ).toBe(
+      checksumPermitPayload({
+        ":updated_at": 1_775_000_000,
+        ":id": "two",
+        address: "10001 100 ST NW",
+        row_id: "row-1",
+      }),
+    );
+
+    const repository = new FakeRepository();
+    const firstRow = validRow("row-1", null);
+    firstRow.rawRecord.payload[":id"] = "revision-system-id-1";
+    const secondRow = validRow("row-1", null);
+    secondRow.rawRecord.payload[":id"] = "revision-system-id-2";
+    secondRow.rawRecord.payload[":updated_at"] = 1_775_000_000;
+
+    await runPermitImport({
+      provider: new FakeProvider("revision-1", [firstRow]),
+      repository,
+      dataset: "building",
+    });
+    const second = await runPermitImport({
+      provider: new FakeProvider("revision-2", [secondRow]),
+      repository,
+      dataset: "building",
+    });
+    expect(second.counts).toMatchObject({ created: 0, updated: 0, skipped: 1, failed: 0 });
   });
 
   it("tracks occupancy added later, then skips the accepted unchanged revision", async () => {

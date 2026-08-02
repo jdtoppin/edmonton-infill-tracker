@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 
 import { PrismaPg } from "@prisma/adapter-pg";
-import { hash } from "bcryptjs";
+import { hash, truncates } from "bcryptjs";
 
 import { normalizeEdmontonAddress } from "../src/domain/address-normalization";
 import {
@@ -84,9 +84,16 @@ async function main() {
 
   const adminPassword = process.env.SEED_ADMIN_PASSWORD;
   const userPassword = process.env.SEED_USER_PASSWORD;
-  if (!adminPassword || !userPassword || adminPassword.length < 16 || userPassword.length < 16) {
+  if (
+    !adminPassword ||
+    !userPassword ||
+    adminPassword.length < 16 ||
+    userPassword.length < 16 ||
+    truncates(adminPassword) ||
+    truncates(userPassword)
+  ) {
     throw new Error(
-      "SEED_ADMIN_PASSWORD and SEED_USER_PASSWORD must each contain at least 16 characters; seed credentials never use fallback values.",
+      "SEED_ADMIN_PASSWORD and SEED_USER_PASSWORD must each contain at least 16 characters without exceeding bcrypt's 72-byte limit; seed credentials never use fallback values.",
     );
   }
 
@@ -369,7 +376,9 @@ async function main() {
         neighbourhoodId: ids.neighbourhoods.westmount,
         title: "Synthetic Westmount detached infill",
         category: ProjectCategory.PROBABLE_NEW_DETACHED_INFILL_FOR_RESALE,
+        computedCategory: ProjectCategory.PROBABLE_NEW_DETACHED_INFILL_FOR_RESALE,
         currentStage: ProjectStage.BUILDING_PERMIT,
+        computedStage: ProjectStage.BUILDING_PERMIT,
         earliestEventDate: date("2025-01-17"),
         latestEventDate: date("2025-03-10"),
         estimatedUnits: 1,
@@ -402,7 +411,9 @@ async function main() {
         neighbourhoodId: ids.neighbourhoods.bonnieDoon,
         title: "Synthetic Bonnie Doon semi-detached infill",
         category: ProjectCategory.PROBABLE_SEMI_DETACHED_INFILL,
+        computedCategory: ProjectCategory.PROBABLE_SEMI_DETACHED_INFILL,
         currentStage: ProjectStage.DEVELOPMENT_PERMIT,
+        computedStage: ProjectStage.DEVELOPMENT_PERMIT,
         earliestEventDate: date("2025-03-12"),
         latestEventDate: date("2025-04-21"),
         estimatedUnits: 2,
@@ -430,7 +441,9 @@ async function main() {
         neighbourhoodId: ids.neighbourhoods.ritchie,
         title: "Synthetic Ritchie garden suite",
         category: ProjectCategory.PROBABLE_GARDEN_SUITE,
+        computedCategory: ProjectCategory.PROBABLE_GARDEN_SUITE,
         currentStage: ProjectStage.BUILDING_PERMIT,
+        computedStage: ProjectStage.BUILDING_PERMIT,
         earliestEventDate: date("2025-04-08"),
         latestEventDate: date("2025-05-14"),
         estimatedUnits: 1,
@@ -457,7 +470,9 @@ async function main() {
         neighbourhoodId: ids.neighbourhoods.highlands,
         title: "Synthetic Highlands renovation",
         category: ProjectCategory.RENOVATION_OR_ADDITION,
+        computedCategory: ProjectCategory.RENOVATION_OR_ADDITION,
         currentStage: ProjectStage.BUILDING_PERMIT,
+        computedStage: ProjectStage.BUILDING_PERMIT,
         earliestEventDate: date("2025-05-02"),
         latestEventDate: date("2025-05-28"),
         estimatedUnits: 0,

@@ -55,6 +55,22 @@ function jsonResponse(value: unknown, status = 200, headers: HeadersInit = {}) {
   });
 }
 
+function cancellableErrorResponse(
+  status: number,
+  headers: HeadersInit,
+  onCancel: () => void,
+): Response {
+  const stream = new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(new TextEncoder().encode("{}"));
+    },
+    cancel() {
+      onCancel();
+    },
+  });
+  return new Response(stream, { status, headers });
+}
+
 function providerWithFetch(fetchImplementation: typeof fetch) {
   return new EdmontonSocrataPermitProvider({
     fetch: fetchImplementation,
@@ -333,13 +349,19 @@ describe("Edmonton Socrata permit provider", () => {
   it("retries HTTP 429 without exposing the application token in the URL", async () => {
     const delays: number[] = [];
     let metadataAttempts = 0;
+    let retryBodyCancelled = false;
     const fetchImplementation = vi.fn<typeof fetch>(async (input, init) => {
       const url = new URL(String(input));
       expect(url.toString()).not.toContain("secret-token");
       expect(new Headers(init?.headers).get("X-App-Token")).toBe("secret-token");
       if (url.pathname.startsWith("/api/views/")) {
         metadataAttempts += 1;
-        if (metadataAttempts === 1) return jsonResponse({}, 429, { "retry-after": "1" });
+        if (metadataAttempts === 1) {
+          return cancellableErrorResponse(429, { "retry-after": "1" }, () => {
+            retryBodyCancelled = true;
+          });
+        }
+        expect(retryBodyCancelled).toBe(true);
         return jsonResponse(metadata("development"));
       }
       return jsonResponse([{ count: "0" }]);
@@ -359,7 +381,95 @@ describe("Edmonton Socrata permit provider", () => {
       revision: "100",
     });
     expect(metadataAttempts).toBe(2);
+    expect(retryBodyCancelled).toBe(true);
     expect(delays).toContain(1_000);
+  });
+
+  it("cancels a non-retryable response body before throwing", async () => {
+    let responseBodyCancelled = false;
+    const fetchImplementation = vi.fn<typeof fetch>(async () =>
+      cancellableErrorResponse(400, {}, () => {
+        responseBodyCancelled = true;
+      }),
+    );
+    const provider = new EdmontonSocrataPermitProvider({
+      fetch: fetchImplementation,
+      requestsPerSecond: 20,
+      retryLimit: 0,
+      sleep: async () => undefined,
+    });
+
+    await expect(provider.getDatasetMetadata("development")).rejects.toMatchObject({ status: 400 });
+    expect(responseBodyCancelled).toBe(true);
+    expect(fetchImplementation).toHaveBeenCalledTimes(1);
+  });
+
+  it("cancels a response whose declared size exceeds the configured limit", async () => {
+    let responseBodyCancelled = false;
+    const fetchImplementation = vi.fn<typeof fetch>(async () =>
+      cancellableErrorResponse(200, { "content-length": "100001" }, () => {
+        responseBodyCancelled = true;
+      }),
+    );
+    const provider = new EdmontonSocrataPermitProvider({
+      fetch: fetchImplementation,
+      maxResponseBytes: 100_000,
+      retryLimit: 0,
+      sleep: async () => undefined,
+    });
+
+    await expect(provider.getDatasetMetadata("development")).rejects.toThrow(
+      "configured size limit",
+    );
+    expect(responseBodyCancelled).toBe(true);
+  });
+
+  it("holds an already queued concurrent request behind Retry-After", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-02T00:00:00.000Z"));
+    try {
+      let metadataAttempts = 0;
+      let releaseFirstResponse: ((response: Response) => void) | undefined;
+      const fetchImplementation = vi.fn<typeof fetch>((input) => {
+        const url = new URL(String(input));
+        if (url.pathname.startsWith("/api/views/")) {
+          metadataAttempts += 1;
+          if (metadataAttempts === 1) {
+            return new Promise<Response>((resolve) => {
+              releaseFirstResponse = resolve;
+            });
+          }
+          return Promise.resolve(jsonResponse(metadata("development")));
+        }
+        return Promise.resolve(jsonResponse([{ count: "0" }]));
+      });
+      const provider = new EdmontonSocrataPermitProvider({
+        fetch: fetchImplementation,
+        requestsPerSecond: 20,
+        retryLimit: 1,
+        random: () => 0,
+      });
+
+      const firstRequest = provider.getDatasetMetadata("development");
+      await vi.advanceTimersByTimeAsync(0);
+      expect(fetchImplementation).toHaveBeenCalledTimes(1);
+
+      const concurrentRequest = provider.getDatasetMetadata("development");
+      await vi.advanceTimersByTimeAsync(0);
+      expect(fetchImplementation).toHaveBeenCalledTimes(1);
+
+      releaseFirstResponse?.(jsonResponse({}, 429, { "retry-after": "1" }));
+      await vi.advanceTimersByTimeAsync(0);
+      await vi.advanceTimersByTimeAsync(999);
+      expect(fetchImplementation).toHaveBeenCalledTimes(1);
+
+      await vi.advanceTimersByTimeAsync(1);
+      expect(fetchImplementation.mock.calls.length).toBeGreaterThanOrEqual(2);
+      await vi.runAllTimersAsync();
+      await expect(Promise.all([firstRequest, concurrentRequest])).resolves.toHaveLength(2);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("rejects a missing occupancy column before importing data", async () => {

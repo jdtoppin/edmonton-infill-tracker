@@ -217,7 +217,7 @@ function Topbar() {
       </div>
       <div className="topbar-actions">
         <div className="sync-state">
-          <span /> Sample data · Phase 2 preview
+          <span /> Sample data · Phase 3 preview
         </div>
         <Button
           variant="secondary"
