@@ -54,7 +54,7 @@ $1"
   fi
 }
 
-tailscale() {
+run_tailscale() {
   TAILSCALE_BE_CLI=1 "$tailscale_bin" "$@"
 }
 
@@ -244,7 +244,7 @@ docker info >/dev/null 2>&1 || die "Docker Desktop is not running or is not avai
 
 new_temporary_file
 tailscale_status_file=$temporary_file
-tailscale status --json >"$tailscale_status_file" 2>/dev/null ||
+run_tailscale status --json >"$tailscale_status_file" 2>/dev/null ||
   die "Tailscale is not running and signed in. Open Tailscale, sign in, then rerun."
 dns_name=$(/usr/bin/plutil -extract Self.DNSName raw -o - "$tailscale_status_file" 2>/dev/null || true)
 dns_name=${dns_name%.}
@@ -257,7 +257,7 @@ app_url="https://$dns_name"
 
 new_temporary_file
 serve_status_file=$temporary_file
-tailscale funnel status --json >"$serve_status_file" 2>/dev/null ||
+run_tailscale funnel status --json >"$serve_status_file" 2>/dev/null ||
   die "the installed Tailscale CLI cannot verify Funnel state. Update Tailscale first."
 assert_no_funnel "$serve_status_file"
 
@@ -314,10 +314,10 @@ else
 fi
 
 say "Publishing loopback port $http_port to this tailnet with Tailscale Serve."
-tailscale serve --bg --yes "http://127.0.0.1:$http_port"
+run_tailscale serve --bg --yes "http://127.0.0.1:$http_port"
 new_temporary_file
 verified_serve_status_file=$temporary_file
-tailscale funnel status --json >"$verified_serve_status_file" 2>/dev/null ||
+run_tailscale funnel status --json >"$verified_serve_status_file" 2>/dev/null ||
   die "Tailscale Funnel state could not be verified after configuring Serve."
 assert_no_funnel "$verified_serve_status_file"
 

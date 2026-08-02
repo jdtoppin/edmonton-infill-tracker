@@ -32,6 +32,9 @@ describe("self-hosted foundation", () => {
     expect(installer).toContain("set_env_value HTTPS_PORT 8443");
     expect(installer).toContain("TAILSCALE_BE_CLI=1");
     expect(installer).toContain("/Applications/Tailscale.app/Contents/MacOS/Tailscale");
+    expect(installer).toContain("run_tailscale()");
+    expect(installer).not.toMatch(/(^|\n)tailscale\(\) \{/);
+    expect(installer).toContain("run_tailscale status --json");
     expect(installer).toContain("serve --bg --yes");
     expect(installer).not.toContain("funnel --bg");
     expect(installer).not.toContain("plutil -lint");
@@ -42,6 +45,8 @@ describe("self-hosted foundation", () => {
     expect(installer).toContain('set_env_value INITIAL_ADMIN_PASSWORD ""');
     expect(operator).not.toMatch(/down\s+--volumes|volume\s+rm/);
     expect(operator).not.toContain("plutil -lint");
+    expect(operator).toContain("run_tailscale()");
+    expect(operator).not.toMatch(/(^|\n)tailscale\(\) \{/);
     expect(operator).toContain('require_funnel_off "start services"');
     expect(operator).toContain('require_funnel_off "restart services"');
     expect(operator).toContain('require_funnel_off "update"');
