@@ -49,7 +49,10 @@ export function jobDate(value: string | null | undefined): Date | null {
 }
 
 export const allPermitDatasets: readonly PermitDataset[] = ["development", "building"];
-export const permitImportConflictKey = "job:permit-import";
+/** One key serializes the import -> matching -> reclassification pipeline. */
+export const permitImportConflictKey = "job:permit-project-pipeline";
+export const projectMatchingConflictKey = permitImportConflictKey;
+export const projectReclassificationConflictKey = permitImportConflictKey;
 export const dataQualityConflictKey = "job:data-quality";
 
 export function isUniqueConstraintError(error: unknown): boolean {

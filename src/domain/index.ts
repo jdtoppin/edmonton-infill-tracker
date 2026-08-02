@@ -4,4 +4,5 @@ export * from "./infill-classification";
 export * from "./infill-scoring-config";
 export * from "./permit-identity";
 export * from "./project-matching";
+export * from "./project-timeline";
 export * from "./saved-search-matching";

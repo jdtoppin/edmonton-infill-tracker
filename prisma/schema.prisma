@@ -105,6 +105,13 @@ enum JobType {
   DATA_QUALITY_CHECK
 }
 
+enum ProjectActionType {
+  MANUAL_OVERRIDE
+  EVENT_REASSIGNED
+  PROJECT_MERGED
+  MARKED_NOT_RELEVANT
+}
+
 model User {
   id              String   @id @default(cuid())
   email           String
@@ -119,7 +126,8 @@ model User {
   sessions         Session[]
   savedSearches    SavedSearch[]
   alertEvents      AlertEvent[]
-  reviewedProjects Project[]     @relation("ProjectReviewer")
+  reviewedProjects Project[]       @relation("ProjectReviewer")
+  projectActions   ProjectAction[]
 }
 
 model Session {
@@ -280,11 +288,12 @@ model PermitEvent {
   createdAt              DateTime  @default(now()) @db.Timestamptz(3)
   updatedAt              DateTime  @updatedAt @db.Timestamptz(3)
 
-  address       Address          @relation(fields: [addressId], references: [id], onDelete: Restrict)
-  neighbourhood Neighbourhood?   @relation(fields: [neighbourhoodId], references: [id], onDelete: Restrict)
-  rawRecord     RawPermitRecord? @relation(fields: [rawRecordId], references: [id], onDelete: SetNull)
-  projectEvent  ProjectEvent?
-  alertEvents   AlertEvent[]
+  address        Address          @relation(fields: [addressId], references: [id], onDelete: Restrict)
+  neighbourhood  Neighbourhood?   @relation(fields: [neighbourhoodId], references: [id], onDelete: Restrict)
+  rawRecord      RawPermitRecord? @relation(fields: [rawRecordId], references: [id], onDelete: SetNull)
+  projectEvent   ProjectEvent?
+  projectActions ProjectAction[]
+  alertEvents    AlertEvent[]
 
   @@unique([sourceProvider, sourceRecordIdentifier])
   @@index([permitNumber])
@@ -302,7 +311,11 @@ model Project {
   neighbourhoodId            String
   title                      String
   category                   ProjectCategory
+  computedCategory           ProjectCategory     @default(NOT_RELEVANT)
+  categoryOverride           ProjectCategory?
   currentStage               ProjectStage
+  computedStage              ProjectStage        @default(DISCOVERED)
+  stageOverride              ProjectStage?
   earliestEventDate          DateTime?           @db.Date
   latestEventDate            DateTime?           @db.Date
   estimatedUnits             Int?
@@ -310,6 +323,7 @@ model Project {
   marketListingStatus        MarketListingStatus @default(NOT_CHECKED)
   marketComparison           Json?
   marketLastCheckedAt        DateTime?           @db.Timestamptz(3)
+  marketReviewRequired       Boolean             @default(false)
   infillConfidence           Int                 @default(0)
   confidenceExplanation      Json
   reviewStatus               ReviewStatus        @default(PENDING)
@@ -320,12 +334,14 @@ model Project {
   createdAt                  DateTime            @default(now()) @db.Timestamptz(3)
   updatedAt                  DateTime            @updatedAt @db.Timestamptz(3)
 
-  address        Address        @relation(fields: [addressId], references: [id], onDelete: Restrict)
-  neighbourhood  Neighbourhood  @relation(fields: [neighbourhoodId], references: [id], onDelete: Restrict)
-  reviewedBy     User?          @relation("ProjectReviewer", fields: [reviewedById], references: [id], onDelete: SetNull)
-  mergedInto     Project?       @relation("ProjectMerge", fields: [mergedIntoId], references: [id], onDelete: SetNull)
-  mergedProjects Project[]      @relation("ProjectMerge")
+  address        Address         @relation(fields: [addressId], references: [id], onDelete: Restrict)
+  neighbourhood  Neighbourhood   @relation(fields: [neighbourhoodId], references: [id], onDelete: Restrict)
+  reviewedBy     User?           @relation("ProjectReviewer", fields: [reviewedById], references: [id], onDelete: SetNull)
+  mergedInto     Project?        @relation("ProjectMerge", fields: [mergedIntoId], references: [id], onDelete: SetNull)
+  mergedProjects Project[]       @relation("ProjectMerge")
   events         ProjectEvent[]
+  actions        ProjectAction[] @relation("ProjectActionProject")
+  relatedActions ProjectAction[] @relation("ProjectActionRelatedProject")
   alertEvents    AlertEvent[]
 
   @@index([addressId, latestEventDate])
@@ -333,6 +349,7 @@ model Project {
   @@index([category, latestEventDate])
   @@index([currentStage, latestEventDate])
   @@index([infillConfidence, latestEventDate])
+  @@index([marketReviewRequired, latestEventDate])
   @@index([reviewStatus])
   @@index([mergedIntoId])
 }
@@ -350,6 +367,28 @@ model ProjectEvent {
 
   @@unique([projectId, permitEventId])
   @@index([projectId, eventDate])
+}
+
+model ProjectAction {
+  id               String            @id @default(cuid())
+  actionType       ProjectActionType
+  projectId        String
+  relatedProjectId String?
+  permitEventId    String?
+  actorUserId      String
+  reason           String
+  details          Json
+  createdAt        DateTime          @default(now()) @db.Timestamptz(3)
+
+  project        Project      @relation("ProjectActionProject", fields: [projectId], references: [id], onDelete: Restrict)
+  relatedProject Project?     @relation("ProjectActionRelatedProject", fields: [relatedProjectId], references: [id], onDelete: Restrict)
+  permitEvent    PermitEvent? @relation(fields: [permitEventId], references: [id], onDelete: Restrict)
+  actorUser      User         @relation(fields: [actorUserId], references: [id], onDelete: Restrict)
+
+  @@index([projectId, createdAt])
+  @@index([relatedProjectId, createdAt])
+  @@index([permitEventId])
+  @@index([actorUserId, createdAt])
 }
 
 model SavedSearch {

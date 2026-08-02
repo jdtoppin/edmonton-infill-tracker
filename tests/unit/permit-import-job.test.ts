@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 
-import { jobDate, parsePermitImportJobMetadata } from "../../src/jobs/permit-import-job";
+import {
+  jobDate,
+  parsePermitImportJobMetadata,
+  permitImportConflictKey,
+  projectMatchingConflictKey,
+  projectReclassificationConflictKey,
+} from "../../src/jobs/permit-import-job";
 
 describe("permit import job metadata", () => {
   it("accepts scheduled imports for both official datasets", () => {
@@ -37,5 +43,11 @@ describe("permit import job metadata", () => {
   it("converts a valid civil date without local-timezone drift", () => {
     expect(jobDate("2026-07-30")?.toISOString()).toBe("2026-07-30T00:00:00.000Z");
     expect(jobDate(null)).toBeNull();
+  });
+
+  it("serializes import, matching, and reclassification behind one pipeline key", () => {
+    expect(projectMatchingConflictKey).toBe(permitImportConflictKey);
+    expect(projectReclassificationConflictKey).toBe(permitImportConflictKey);
+    expect(permitImportConflictKey).toBe("job:permit-project-pipeline");
   });
 });

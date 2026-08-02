@@ -17,7 +17,7 @@ mkdir -p "$backup_dir"
 chmod 0700 "$backup_dir"
 
 timestamp="$(date -u +%Y%m%dT%H%M%SZ)"
-backup_path="$backup_dir/edmonton-infill-$timestamp.dump"
+backup_path="$backup_dir/edmonton-infill-$timestamp-$$.dump"
 partial_path="$backup_path.partial"
 
 cleanup() {
@@ -36,4 +36,3 @@ mv "$partial_path" "$backup_path"
 trap - EXIT HUP INT TERM
 
 printf 'Backup written and verified: %s\n' "$backup_path"
-

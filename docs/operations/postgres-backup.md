@@ -6,16 +6,16 @@ The database contains user accounts, saved searches, and alert history in additi
 
 ## Create and verify a backup
 
-Run the bundled helper from the repository root:
+Run the guarded operator command from the repository root:
 
 ```sh
-sh scripts/backup-postgres.sh
+./scripts/infill backup
 ```
 
-It writes a private, timestamped custom-format dump under `./backups`, verifies that `pg_restore` can read its catalogue, and only then publishes the final filename. Override the destination when needed:
+It prevents a backup from overlapping an update, writes a private custom-format dump under `./backups` with a timestamp and process ID in its name, verifies that `pg_restore` can read its catalogue, and only then publishes the final filename. Override the destination when needed:
 
 ```sh
-BACKUP_DIR=/Volumes/EncryptedBackups/infill sh scripts/backup-postgres.sh
+BACKUP_DIR=/Volumes/EncryptedBackups/infill ./scripts/infill backup
 ```
 
 The external volume should be encrypted and mounted before the job starts. The helper refuses an empty or root destination, creates the directory with mode `0700`, and creates files with a private umask.
@@ -23,7 +23,7 @@ The external volume should be encrypted and mounted before the job starts. The h
 List a backup catalogue without restoring it:
 
 ```sh
-docker compose exec -T db pg_restore --list < backups/edmonton-infill-YYYYMMDDTHHMMSSZ.dump
+docker compose exec -T db pg_restore --list < backups/edmonton-infill-YYYYMMDDTHHMMSSZ-PID.dump
 ```
 
 A readable catalogue is necessary but not sufficient. At least quarterly, restore the newest backup into a disposable environment and verify row counts, login, a project timeline, and PostGIS queries.
@@ -35,7 +35,7 @@ A readable catalogue is necessary but not sufficient. At least quarterly, restor
 - Copy backups to a second encrypted device or encrypted remote destination.
 - Monitor the backup command's exit status and file size; a zero-byte or unexpectedly small file is an incident.
 
-On macOS, schedule the helper with a user LaunchAgent or another local scheduler that runs only after Docker Desktop is available. Use an absolute repository path as its working directory and send standard output/error to files that are reviewed. Do not put database passwords in the scheduler definition; Compose reads the protected `.env` file from the repository directory.
+On macOS, schedule `./scripts/infill backup` with a user LaunchAgent or another local scheduler that runs only after Docker Desktop is available. Use an absolute repository path as its working directory and send standard output/error to files that are reviewed. Do not put database passwords in the scheduler definition; Compose reads the protected `.env` file from the repository directory.
 
 ## Restore after data loss
 
@@ -54,16 +54,15 @@ docker compose exec -T db sh -ec 'dropdb --if-exists --force --username="$POSTGR
 Restore the selected custom-format dump:
 
 ```sh
-docker compose exec -T db sh -ec 'exec pg_restore --exit-on-error --no-owner --no-privileges --username="$POSTGRES_USER" --dbname="$POSTGRES_DB"' < backups/edmonton-infill-YYYYMMDDTHHMMSSZ.dump
+docker compose exec -T db sh -ec 'exec pg_restore --exit-on-error --no-owner --no-privileges --username="$POSTGRES_USER" --dbname="$POSTGRES_DB"' < backups/edmonton-infill-YYYYMMDDTHHMMSSZ-PID.dump
 ```
 
 Apply any migrations from the checked-out application version, then restart and verify:
 
 ```sh
 docker compose run --rm migrate
-docker compose up -d web worker scheduler caddy
-docker compose ps
-curl --fail http://127.0.0.1/api/health
+./scripts/infill start
+./scripts/infill status
 ```
 
 Review recent logs and validate representative records before reopening public access.

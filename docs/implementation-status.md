@@ -1,6 +1,6 @@
 # Implementation status
 
-Updated: 2026-08-01
+Updated: 2026-08-02
 
 ## Phase 1 — Foundation
 
@@ -33,10 +33,10 @@ Updated: 2026-08-01
 
 - [x] Establish deterministic address normalization and initial rule configuration.
 - [x] Establish pure project-matching and classification/scoring primitives.
-- [ ] Connect matching and classification to persisted permit events and job runs.
-- [ ] Build chronological project aggregation and stage precedence.
-- [ ] Add durable manual overrides, merge, and event reassignment services.
-- [ ] Add database-backed integration tests.
+- [x] Connect matching and classification to persisted permit events and scheduled job runs.
+- [x] Build chronological project aggregation and stage precedence, including occupancy completion.
+- [x] Add durable admin-only overrides, merge, event reassignment, and action auditing services.
+- [x] Add database-backed project-intelligence integration tests.
 
 ## Phase 4 — User interface
 
@@ -57,6 +57,7 @@ Updated: 2026-08-01
 
 ## Phase 6 — Production readiness
 
+- [x] Add a guided, loopback-only Mac installer and guarded update/import/backup commands.
 - [ ] Complete ingestion-aware health and data-quality checks.
 - [ ] Run security, dependency, and accessibility reviews.
 - [ ] Perform a backup-and-restore drill on the Mac mini.

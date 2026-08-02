@@ -1,12 +1,12 @@
 # Mac mini deployment
 
-This is the supported MVP production path. It keeps PostgreSQL on a private Docker network, applies Prisma migrations before application processes start, and exposes only Caddy on the Mac mini. The recommended personal deployment keeps Caddy on loopback and publishes it only to the owner's tailnet with Tailscale Serve.
+This is the supported MVP production path. It keeps PostgreSQL on a private Docker network, applies Prisma migrations before application processes start, and keeps Caddy on loopback. Tailscale Serve publishes that loopback service only to the owner's tailnet.
 
 ## Service layout
 
 | Service     | Responsibility                                                   | Host exposure                 |
 | ----------- | ---------------------------------------------------------------- | ----------------------------- |
-| `caddy`     | Loopback HTTP for Tailscale Serve, or optional LAN/HTTPS proxy   | Configurable host binding     |
+| `caddy`     | Loopback HTTP target for Tailscale Serve                         | `127.0.0.1` only              |
 | `web`       | Next.js application and health endpoint                          | Docker networks only          |
 | `worker`    | Import, matching, reclassification, alert, and data-quality work | Docker networks only          |
 | `scheduler` | Enqueues recurring jobs                                          | Docker networks only          |
@@ -24,95 +24,77 @@ Permit jobs use a database-enforced conflict key plus a renewable worker lease. 
 3. In Docker Desktop settings, enable **Start Docker Desktop when you sign in**. Allocate at least 4 CPU cores, 8 GB of memory, and enough disk for database growth and retained images; 60 GB is a sensible initial floor.
 4. In macOS Energy settings, prevent automatic sleep while the display is off. A sleeping Mac cannot import data, send alerts, or serve the site.
 5. Install Git, either with the Xcode command-line tools or Homebrew.
+6. Install [Tailscale for macOS](https://tailscale.com/download/mac), sign in to the intended tailnet, and enable MagicDNS and HTTPS certificates. The installer detects both `/usr/local/bin/tailscale` and the App Store application's bundled CLI.
 
 Do not forward any router ports and do not add a database port mapping. Tailscale Serve makes the app available only inside the tailnet and applies the tailnet access policy.
 
-## 2. Clone and configure
-
-Replace the placeholder with the repository's HTTPS or SSH clone URL:
+## 2. Clone and run the guided installer
 
 ```sh
-git clone <repository-url> edmonton-infill-tracker
+git clone https://github.com/jdtoppin/edmonton-infill-tracker.git
 cd edmonton-infill-tracker
-cp .env.example .env
-chmod 600 .env
+./scripts/infill install
 ```
 
-Edit `.env` and complete every value marked required. At minimum, review:
+The installer performs these steps and stops with an actionable message rather than weakening a security check:
 
-- `POSTGRES_DB`, `POSTGRES_USER`, and `POSTGRES_PASSWORD`
-- `AUTH_REQUIRED`, the application URL, initial administrator email, and strong seed passwords
-- Edmonton Open Data base URL, dataset identifiers, optional Socrata application token, page size, and rate limit
-- Mapbox public token and alert-provider credentials
-- `HOST_BIND_ADDRESS=127.0.0.1` for the recommended Tailscale-only deployment
-- `SITE_ADDRESS=:80` when Tailscale terminates HTTPS in front of Caddy
+- verifies macOS, Docker Desktop/Compose, and a signed-in Tailscale CLI;
+- derives the exact tailnet DNS name before writing `APP_URL`;
+- checks the existing Tailscale configuration and refuses to continue if Funnel is enabled;
+- creates `.env` with mode `0600` only when it is absent, using a generated 64-character database password;
+- prompts invisibly for the initial administrator password, passes it only to the one-time bootstrap container, and never prints or stores it;
+- binds Caddy to `127.0.0.1:8080` and `127.0.0.1:8443`, avoiding privileged host ports;
+- builds the stack, applies migrations, and creates or promotes only the configured administrator;
+- configures persistent Tailscale Serve to proxy `http://127.0.0.1:8080` and verifies Funnel remains off.
 
-Generate a URL-safe database password. Hex output avoids breaking the database URL assembled by Compose:
+The administrator bootstrap is idempotent. Rerunning the installer promotes/reactivates the same normalized email without replacing its password. If a first install was interrupted after `.env` was saved but before the administrator was created, the rerun detects the missing account and asks for the password again; that recovery password remains ephemeral. `./scripts/infill bootstrap-admin` prompts for a new hidden password and deliberately creates, promotes, or resets that administrator without storing the password in `.env`.
+
+When `.env` already exists, the installer changes only its file permissions to `0600`; it never replaces or rewrites values. It validates `HOST_BIND_ADDRESS=127.0.0.1`, `SITE_ADDRESS=:80`, `AUTH_REQUIRED=true`, the Tailscale-derived `APP_URL`, and a non-placeholder database password before touching containers. Existing Docker containers and named volumes are preserved. Correct rejected values deliberately and rerun.
+
+Never commit `.env`. Keep the administrator password in a password manager. Do not enable Tailscale Funnel: Funnel is public internet exposure, while Serve remains restricted by tailnet grants.
+
+## 3. Verify and operate
+
+The installer prints the private `https://...ts.net` URL after local health, administrator bootstrap, Serve, and Funnel checks pass. Verify it at any time:
 
 ```sh
-openssl rand -hex 32
+./scripts/infill status
 ```
 
-Never commit `.env`. Keep a secure copy of the production values in a password manager.
+The production installer never runs `prisma:seed`; that command creates synthetic permits, projects, and a standard user. Use it only in a disposable development environment.
 
-For Tailscale-only use, keep `HOST_BIND_ADDRESS=127.0.0.1` and `SITE_ADDRESS=:80`. After the stack is healthy, publish the loopback listener to the tailnet with the current Tailscale CLI:
+The operator command intentionally exposes a small set of guarded routines. `start`, `restart`, and `update` fail closed unless the Tailscale CLI confirms every background and foreground Funnel configuration is off; an unrecognized Funnel response is also rejected. `stop` remains available even when that check cannot run. `update` creates a verified database backup, refuses a dirty Git checkout, fast-forwards, rebuilds, stops application-facing services, migrates while PostgreSQL stays running, restarts, and checks health. `import` validates real calendar dates, their order, and the dataset argument before queuing the existing worker job.
 
 ```sh
-tailscale serve --bg http://127.0.0.1:80
-tailscale serve status
+./scripts/infill start
+./scripts/infill stop
+./scripts/infill restart
+./scripts/infill logs
+./scripts/infill logs worker
+./scripts/infill backup
+./scripts/infill update
+./scripts/infill import 2020-01-01 2026-07-31 all
+./scripts/infill bootstrap-admin
 ```
 
-Use the exact `https://...ts.net` URL reported by Tailscale as `APP_URL`, then recreate the web container. The application uses that configured public origin for login/logout request protection because Tailscale terminates HTTPS before forwarding to loopback HTTP. Do not enable Tailscale Funnel; Funnel is public, while Serve remains restricted to the tailnet. Tailnet grants should limit this Mac mini service to the intended user or devices.
-
-For direct LAN use without Tailscale Serve, set `HOST_BIND_ADDRESS=0.0.0.0`. The site will then be available at `http://<mac-mini-lan-address>/`; give the Mac mini a DHCP reservation so its LAN address remains stable.
-
-## 3. Build and start
-
-From the repository directory:
-
-```sh
-docker compose up -d --build
-docker compose ps
-```
-
-The first command builds a native image for the Mac's CPU, initializes PostgreSQL and PostGIS, runs `prisma:migrate:deploy`, then starts the web, worker, scheduler, and Caddy services. No separate database configuration is required.
-
-Wait until `db` and `web` show as healthy. Then check the service through Caddy:
-
-```sh
-curl --fail http://127.0.0.1/api/health
-```
-
-If startup fails, inspect the migration and application logs:
-
-```sh
-docker compose logs migrate
-docker compose logs --tail=200 db web worker scheduler caddy
-```
-
-Do not run the development seed in production unless synthetic sample projects and the seed accounts are wanted. For a fresh local demonstration, run:
-
-```sh
-docker compose run --rm web npm run prisma:seed
-```
-
-Change any seeded placeholder passwords immediately.
+`stop` preserves every named volume. All commands refuse to operate if `.env` no longer binds to `127.0.0.1` or if Caddy is no longer configured for loopback HTTP behind Tailscale. Start, restart, update, import, backup, and administrator bootstrap share an atomic operator lock. This prevents a second shell from starting or writing through application code during an update migration, while `stop` stays unlocked for containment. If the Mac loses power and leaves `backups/.operator-lock` behind, first confirm no guarded operator command is running, then remove the lock's `pid` file and the empty lock directory before retrying.
 
 ## Routine commands
 
-Apply migrations explicitly:
+For a planned release, use `./scripts/infill update`. During manual recovery, stop the application-facing services before applying a migration explicitly:
 
 ```sh
+docker compose stop caddy web worker scheduler
 docker compose run --rm migrate
 ```
 
-Start a historical import. The exact date flags are implemented by the `import:backfill` command:
+Queue a historical import:
 
 ```sh
-docker compose run --rm worker npm run import:backfill -- --from=2020-01-01 --to=2026-07-31 --dataset=all
+./scripts/infill import 2020-01-01 2026-07-31 all
 ```
 
-This queues the work; the running worker processes it. Use `--dataset=development` or `--dataset=building` to limit a backfill.
+The running worker processes it. Replace `all` with `development` or `building` to limit a backfill.
 
 Follow all logs or only one service:
 
@@ -121,13 +103,10 @@ docker compose logs --follow --tail=200
 docker compose logs --follow worker
 ```
 
-Restart one service without touching the database:
+Restart the application services without touching the database:
 
 ```sh
-docker compose restart web
-docker compose restart worker
-docker compose restart scheduler
-docker compose restart caddy
+./scripts/infill restart
 ```
 
 Inspect status and resource use:
@@ -140,13 +119,13 @@ docker stats
 Stop the application while preserving all volumes:
 
 ```sh
-docker compose stop
+./scripts/infill stop
 ```
 
 Start it again:
 
 ```sh
-docker compose start
+./scripts/infill start
 ```
 
 Avoid `docker compose down --volumes`: it deletes the named PostgreSQL volume.
@@ -155,24 +134,15 @@ Avoid `docker compose down --volumes`: it deletes the named PostgreSQL volume.
 
 There is intentionally no GitHub-to-Mac automatic deployment in the MVP.
 
-1. Read the release notes and confirm CI passed for the target commit.
-2. Create and verify a database backup as described in [PostgreSQL backup and restore](../operations/postgres-backup.md).
-3. Confirm the worktree is clean. Do not overwrite local edits.
-4. Fetch and fast-forward, rebuild, apply migrations, and recreate services:
+After reading the release notes and confirming CI passed, update with one command:
 
 ```sh
-git status --short
-git fetch --prune
-git pull --ff-only
-docker compose build --pull
-docker compose pull caddy
-docker compose run --rm migrate
-docker compose up -d --remove-orphans
-docker compose ps
-curl --fail http://127.0.0.1/api/health
+./scripts/infill update
 ```
 
-5. Review `docker compose logs --since=10m` and exercise login plus one project view.
+It first confirms Funnel is off, refuses a dirty checkout, creates and verifies a backup, fast-forwards only, and rebuilds while the current app remains available. It then stops `caddy`, `web`, `worker`, and `scheduler`, leaves PostgreSQL running, applies migrations, confirms Funnel is still off, recreates services without deleting volumes, and checks local/Tailscale health. Review `./scripts/infill logs` afterward and exercise login plus one project view.
+
+If migration fails, the update exits with PostgreSQL running and all application-facing services stopped. Do not manually start the previous application against a possibly changed schema. Review the migration output and database logs, correct the cause, and rerun `./scripts/infill update`. To roll back instead, restore the verified pre-update backup before checking out, rebuilding, and starting the previous known-good version. A Funnel verification failure after migration also leaves application-facing services stopped; disable Funnel or restore Tailscale status access, then use `./scripts/infill start`.
 
 Database migrations are forward-only. If an update changes the schema and must be rolled back, stop application processes, restore the pre-update database backup, check out the previous known-good commit, rebuild, and start it. Do not point older application code at a newly migrated database without confirming schema compatibility.
 
