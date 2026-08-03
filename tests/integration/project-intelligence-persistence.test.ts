@@ -7,6 +7,7 @@ import {
   ProjectActionType,
   ProjectCategory,
   ProjectStage,
+  InfillAreaClassification,
   ReviewStatus,
   JobType,
   RunStatus,
@@ -83,6 +84,8 @@ describe.skipIf(!hasDatabase)("persisted project intelligence", () => {
         normalizedStreetAddress: "12345 67 ST NW",
         normalizedAddressKey: `edmonton|ab|12345 67 st nw|unit:2|${suffix}`,
         unitNumber: "2",
+        latitude: 53.552234,
+        longitude: -113.540089,
         neighbourhoodId,
       },
     });
@@ -191,11 +194,18 @@ describe.skipIf(!hasDatabase)("persisted project intelligence", () => {
       computedStage: ProjectStage.COMPLETE,
       estimatedUnits: 2,
       marketReviewRequired: true,
+      infillAreaClassification: InfillAreaClassification.CORE,
     });
     expect(project.earliestEventDate?.toISOString()).toBe("2026-01-15T00:00:00.000Z");
     expect(project.latestEventDate?.toISOString()).toBe("2026-08-01T00:00:00.000Z");
     expect(project.infillStartDate?.toISOString()).toBe("2026-01-15T00:00:00.000Z");
     expect(project.latestInfillActivityDate?.toISOString()).toBe("2026-08-01T00:00:00.000Z");
+    expect(project.confidenceExplanation).toMatchObject({
+      geography: {
+        classification: InfillAreaClassification.CORE,
+        coordinateSource: "LINKED_PERMIT_ADDRESSES",
+      },
+    });
 
     await db.permitEvent.update({
       where: { id: buildingPermitId },

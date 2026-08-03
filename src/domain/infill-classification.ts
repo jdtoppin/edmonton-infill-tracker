@@ -1,4 +1,9 @@
 import { DEFAULT_INFILL_SCORING_CONFIG, type InfillScoringConfig } from "./infill-scoring-config";
+import {
+  CORE_INFILL_AREA_POLICY,
+  INFILL_AREA_CLASSIFICATION,
+  type InfillAreaClassification,
+} from "./edmonton-core-infill-area";
 
 /** Persistence-compatible literals kept here to avoid a generated-client dependency. */
 export const INFILL_PROJECT_CATEGORY = {
@@ -57,6 +62,8 @@ export interface InfillClassificationInput {
   estimatedConstructionValue?: number | null;
   /** A separate marketplace/social signal; permit language never infers this. */
   marketListingSignal?: boolean;
+  /** Versioned project geography; unknown locations are deliberately not penalized. */
+  infillAreaClassification?: InfillAreaClassification;
 }
 
 export type InfillScoringRule =
@@ -619,6 +626,11 @@ export function classifyInfillProject(
     renovationOnly,
     "renovationOnly",
     "The available language describes only renovation, alteration, or addition work.",
+  );
+  addRule(
+    input.infillAreaClassification === INFILL_AREA_CLASSIFICATION.outsideCore,
+    "outsideCoreInfillArea",
+    `The mapped project is outside the tracker's ${CORE_INFILL_AREA_POLICY.policyVersion} core infill area (inside Anthony Henday, between Yellowhead Trail and Whitemud Drive).`,
   );
 
   if (commercialOrIndustrial) {

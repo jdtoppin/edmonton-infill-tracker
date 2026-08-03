@@ -3,7 +3,11 @@ import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import type { PrismaClient } from "../../src/generated/prisma/client";
-import { ProjectCategory, ProjectStage } from "../../src/generated/prisma/enums";
+import {
+  InfillAreaClassification,
+  ProjectCategory,
+  ProjectStage,
+} from "../../src/generated/prisma/enums";
 import { getDb } from "../../src/lib/db";
 import { getDashboardOverview } from "../../src/services/project-read-model";
 
@@ -14,13 +18,17 @@ describe.skipIf(!hasTestDatabase)("dashboard lifecycle overview", () => {
   const suffix = randomUUID();
   const sourceProvider = `dashboard-lifecycle:${suffix}`;
   const cityNeighbourhoodId = `dashboard-lifecycle-${suffix}`;
+  const outsideCityNeighbourhoodId = `dashboard-lifecycle-outside-${suffix}`;
   const normalizedAddressKey = `edmonton|ab|98765 test avenue nw|${suffix}`;
+  const outsideAddressKey = `edmonton|ab|98767 test avenue nw|${suffix}`;
   const historicalAddressKey = `edmonton|ab|98766 test avenue nw|${suffix}`;
   const projectKey = `dashboard-lifecycle:${suffix}`;
+  const outsideProjectKey = `dashboard-lifecycle:outside:${suffix}`;
   const historicalProjectKey = `dashboard-lifecycle:historical:${suffix}`;
   const now = new Date("2026-08-02T12:00:00.000Z");
   let db: PrismaClient;
   let projectId: string;
+  let outsideProjectId: string;
   let baselineSevenStarts: number;
   let baselineAllTimeStarts: number;
 
@@ -43,6 +51,8 @@ describe.skipIf(!hasTestDatabase)("dashboard lifecycle overview", () => {
         rawSourceAddress: "98765 TEST AVENUE NW",
         normalizedStreetAddress: "98765 TEST AVE NW",
         normalizedAddressKey,
+        latitude: 53.552234,
+        longitude: -113.540089,
         neighbourhoodId: neighbourhood.id,
       },
     });
@@ -61,6 +71,7 @@ describe.skipIf(!hasTestDatabase)("dashboard lifecycle overview", () => {
         infillStartDate: new Date("2026-07-29T00:00:00.000Z"),
         latestInfillActivityDate: new Date("2026-07-30T00:00:00.000Z"),
         infillConfidence: 100,
+        infillAreaClassification: InfillAreaClassification.CORE,
         confidenceExplanation: { summary: "Synthetic integration fixture", factors: [] },
       },
     });
@@ -190,11 +201,98 @@ describe.skipIf(!hasTestDatabase)("dashboard lifecycle overview", () => {
       },
     });
 
+    const outsideNeighbourhood = await db.neighbourhood.create({
+      data: {
+        cityNeighbourhoodId: outsideCityNeighbourhoodId,
+        name: "Dashboard Outside Core Test",
+      },
+    });
+    const outsideAddress = await db.address.create({
+      data: {
+        rawSourceAddress: "98767 TEST AVENUE NW",
+        normalizedStreetAddress: "98767 TEST AVE NW",
+        normalizedAddressKey: outsideAddressKey,
+        latitude: 53.603005,
+        longitude: -113.455994,
+        neighbourhoodId: outsideNeighbourhood.id,
+      },
+    });
+    const outsideProject = await db.project.create({
+      data: {
+        projectKey: outsideProjectKey,
+        addressId: outsideAddress.id,
+        neighbourhoodId: outsideNeighbourhood.id,
+        title: "Synthetic outside-core row housing project",
+        category: ProjectCategory.PROBABLE_ROW_HOUSING,
+        computedCategory: ProjectCategory.PROBABLE_ROW_HOUSING,
+        currentStage: ProjectStage.BUILDING_PERMIT,
+        computedStage: ProjectStage.BUILDING_PERMIT,
+        earliestEventDate: new Date("2026-07-29T00:00:00.000Z"),
+        latestEventDate: new Date("2026-07-30T00:00:00.000Z"),
+        infillStartDate: new Date("2026-07-29T00:00:00.000Z"),
+        latestInfillActivityDate: new Date("2026-07-30T00:00:00.000Z"),
+        infillConfidence: 60,
+        infillAreaClassification: InfillAreaClassification.OUTSIDE_CORE,
+        confidenceExplanation: { summary: "Synthetic outside-core fixture", factors: [] },
+      },
+    });
+    outsideProjectId = outsideProject.id;
+    const [outsideDevelopment, outsideBuilding] = await Promise.all([
+      db.permitEvent.create({
+        data: {
+          sourceProvider,
+          sourceDataset: "development",
+          sourceRecordIdentifier: "outside-development",
+          permitType: "Development Permit",
+          workDescription: "Construct new row housing dwellings.",
+          buildingType: "Row Housing",
+          unitsAdded: 4,
+          issueDate: new Date("2026-07-29T00:00:00.000Z"),
+          status: "Approved",
+          addressId: outsideAddress.id,
+          neighbourhoodId: outsideNeighbourhood.id,
+          rawSourcePayload: { synthetic: true, area: "outside-core" },
+        },
+      }),
+      db.permitEvent.create({
+        data: {
+          sourceProvider,
+          sourceDataset: "building",
+          sourceRecordIdentifier: "outside-building",
+          permitType: "Single, Semi-detached & Rowhousing",
+          workDescription: "Construct new row housing dwellings.",
+          buildingType: "Row Housing",
+          unitsAdded: 4,
+          issueDate: new Date("2026-07-30T00:00:00.000Z"),
+          status: "Issued",
+          addressId: outsideAddress.id,
+          neighbourhoodId: outsideNeighbourhood.id,
+          rawSourcePayload: { synthetic: true, area: "outside-core" },
+        },
+      }),
+    ]);
+    await db.projectEvent.createMany({
+      data: [
+        {
+          projectId: outsideProject.id,
+          permitEventId: outsideDevelopment.id,
+          eventDate: new Date("2026-07-29T00:00:00.000Z"),
+        },
+        {
+          projectId: outsideProject.id,
+          permitEventId: outsideBuilding.id,
+          eventDate: new Date("2026-07-30T00:00:00.000Z"),
+        },
+      ],
+    });
+
     const historicalAddress = await db.address.create({
       data: {
         rawSourceAddress: "98766 TEST AVENUE NW",
         normalizedStreetAddress: "98766 TEST AVE NW",
         normalizedAddressKey: historicalAddressKey,
+        latitude: 53.552234,
+        longitude: -113.540089,
         neighbourhoodId: neighbourhood.id,
       },
     });
@@ -213,6 +311,7 @@ describe.skipIf(!hasTestDatabase)("dashboard lifecycle overview", () => {
         infillStartDate: new Date("2015-08-07T00:00:00.000Z"),
         latestInfillActivityDate: new Date("2015-08-07T00:00:00.000Z"),
         infillConfidence: 90,
+        infillAreaClassification: InfillAreaClassification.CORE,
         confidenceExplanation: { summary: "Historical integration fixture", factors: [] },
         createdAt: now,
       },
@@ -249,13 +348,19 @@ describe.skipIf(!hasTestDatabase)("dashboard lifecycle overview", () => {
 
   afterAll(async () => {
     await db.project.deleteMany({
-      where: { projectKey: { in: [projectKey, historicalProjectKey] } },
+      where: { projectKey: { in: [projectKey, outsideProjectKey, historicalProjectKey] } },
     });
     await db.permitEvent.deleteMany({ where: { sourceProvider } });
     await db.address.deleteMany({
-      where: { normalizedAddressKey: { in: [normalizedAddressKey, historicalAddressKey] } },
+      where: {
+        normalizedAddressKey: {
+          in: [normalizedAddressKey, outsideAddressKey, historicalAddressKey],
+        },
+      },
     });
-    await db.neighbourhood.deleteMany({ where: { cityNeighbourhoodId } });
+    await db.neighbourhood.deleteMany({
+      where: { cityNeighbourhoodId: { in: [cityNeighbourhoodId, outsideCityNeighbourhoodId] } },
+    });
   });
 
   it("counts qualifying City lifecycle events without counting an accessory garage", async () => {
@@ -278,8 +383,13 @@ describe.skipIf(!hasTestDatabase)("dashboard lifecycle overview", () => {
     expect(overview.neighbourhoodBreakdown).toContainEqual(
       expect.objectContaining({ cityId: cityNeighbourhoodId, count: 1 }),
     );
+    expect(overview.neighbourhoodBreakdown).not.toContainEqual(
+      expect.objectContaining({ cityId: outsideCityNeighbourhoodId }),
+    );
     expect(overview.highConfidenceProjects.map(({ id }) => id)).toContain(projectId);
+    expect(overview.highConfidenceProjects.map(({ id }) => id)).not.toContain(outsideProjectId);
     expect(overview.recentConstruction.map(({ id }) => id)).toContain(projectId);
+    expect(overview.recentConstruction.map(({ id }) => id)).not.toContain(outsideProjectId);
     expect(overview.recentDemolitions.map(({ id }) => id)).not.toContain(projectId);
 
     const allTime = await getDashboardOverview(db, now, "all");

@@ -2,6 +2,7 @@ import { z } from "zod";
 
 import type { Prisma, PrismaClient } from "../../generated/prisma/client";
 import {
+  InfillAreaClassification,
   ProjectCategory,
   ProjectStage,
   ReviewStatus,
@@ -315,6 +316,7 @@ export type DashboardOverview = {
       | "STALE_IMPORT"
       | "UNMATCHED_PERMITS"
       | "MISSING_COORDINATES"
+      | "UNCLASSIFIED_INFILL_AREA"
       | "PREVIEW_DATA";
     severity: "info" | "warning" | "error";
     message: string;
@@ -655,11 +657,12 @@ export async function getProjectDetail(
 
 async function lifecycleCounts(
   db: PrismaClient,
+  projectWhere: Prisma.ProjectWhereInput,
   since: Date | null,
   through: Date,
 ): Promise<LifecycleCounts> {
   const dateRange: Prisma.DateTimeFilter = { ...(since ? { gte: since } : {}), lte: through };
-  const linkedToPublicProject = { project: publicBaseWhere };
+  const linkedToPublicProject = { project: projectWhere };
   const inRange = (date: Date | null) =>
     Boolean(date && (!since || date >= since) && date <= through);
   const counts: LifecycleCounts = { development: 0, building: 0, occupancy: 0 };
@@ -798,8 +801,11 @@ export async function getDashboardOverview(
     ...(activeSince ? { gte: activeSince } : {}),
     lte: activeThrough,
   };
+  const dashboardBaseWhere: Prisma.ProjectWhereInput = {
+    AND: [publicBaseWhere, { infillAreaClassification: InfillAreaClassification.CORE }],
+  };
   const activeProjectWhere: Prisma.ProjectWhereInput = {
-    AND: [publicBaseWhere, { latestInfillActivityDate: activityDateRange }],
+    AND: [dashboardBaseWhere, { latestInfillActivityDate: activityDateRange }],
   };
   const [
     potentialInfillStarts,
@@ -813,15 +819,18 @@ export async function getDashboardOverview(
     latestSuccessfulImport,
     unassignedPermits,
     missingCoordinates,
+    unclassifiedInfillArea,
   ] = await Promise.all([
     db.project.count({
       where: {
-        ...publicBaseWhere,
-        category: { in: [...POTENTIAL_INFILL_START_CATEGORIES] },
-        infillStartDate: activityDateRange,
+        AND: [
+          dashboardBaseWhere,
+          { category: { in: [...POTENTIAL_INFILL_START_CATEGORIES] } },
+          { infillStartDate: activityDateRange },
+        ],
       },
     }),
-    lifecycleCounts(db, activeSince, activeThrough),
+    lifecycleCounts(db, dashboardBaseWhere, activeSince, activeThrough),
     db.project.groupBy({ by: ["category"], where: activeProjectWhere, _count: { _all: true } }),
     db.project.groupBy({
       by: ["neighbourhoodId"],
@@ -877,6 +886,15 @@ export async function getDashboardOverview(
         AND: [
           publicBaseWhere,
           { OR: [{ address: { latitude: null } }, { address: { longitude: null } }] },
+        ],
+      },
+    }),
+    db.project.count({
+      where: {
+        AND: [
+          publicBaseWhere,
+          { infillAreaClassification: InfillAreaClassification.UNKNOWN },
+          { latestInfillActivityDate: activityDateRange },
         ],
       },
     }),
@@ -967,6 +985,15 @@ export async function getDashboardOverview(
       severity: "info",
       message: "Some projects can be shown in the list but not on the map.",
       count: missingCoordinates,
+    });
+  }
+  if (unclassifiedInfillArea > 0) {
+    warnings.push({
+      code: "UNCLASSIFIED_INFILL_AREA",
+      severity: "info",
+      message:
+        "Some projects are excluded from core-area dashboard metrics until their coordinates can be classified.",
+      count: unclassifiedInfillArea,
     });
   }
 

@@ -6,6 +6,7 @@ import { hash, truncates } from "bcryptjs";
 import { normalizeEdmontonAddress } from "../src/domain/address-normalization";
 import {
   AlertFrequency,
+  InfillAreaClassification,
   MarketListingStatus,
   Prisma,
   PrismaClient,
@@ -504,11 +505,15 @@ async function main() {
 
     for (const project of projects) {
       const { id, projectKey, ...values } = project;
+      const seededValues = {
+        ...values,
+        infillAreaClassification: InfillAreaClassification.CORE,
+      };
 
       await tx.project.upsert({
         where: { projectKey },
-        update: values,
-        create: { id, projectKey, ...values },
+        update: seededValues,
+        create: { id, projectKey, ...seededValues },
       });
     }
 

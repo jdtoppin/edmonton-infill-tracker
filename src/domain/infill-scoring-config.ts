@@ -7,6 +7,7 @@ export interface InfillScoringWeights {
   recognizedResidentialBuildingType: number;
   constructionValueAboveThreshold: number;
   renovationOnly: number;
+  outsideCoreInfillArea: number;
 }
 
 export interface InfillScoringKeywords {
@@ -59,6 +60,7 @@ export const DEFAULT_INFILL_SCORING_CONFIG: Readonly<InfillScoringConfig> = {
     recognizedResidentialBuildingType: 10,
     constructionValueAboveThreshold: 5,
     renovationOnly: -25,
+    outsideCoreInfillArea: -40,
   },
   highConstructionValueThreshold: 250_000,
   demolitionToConstructionWindowDays: 548,

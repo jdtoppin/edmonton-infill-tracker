@@ -124,7 +124,7 @@ export function OverviewDashboard({
         <PageHeading
           eyebrow={`Overview · ${displayDate(data.generatedAt, true)}`}
           title="Follow infill from first permit to occupancy."
-          description="Live City-recorded permit milestones are grouped into projects and ranked by the strength of their evidence."
+          description="Core-area City permit milestones are grouped into projects and ranked by the strength of their evidence; Explore remains citywide."
           actions={
             <Link
               className="inline-flex min-h-10 items-center gap-2 rounded-lg bg-[var(--teal)] px-4 text-xs font-semibold text-white no-underline shadow-sm transition-[background-color,box-shadow] outline-none hover:bg-[var(--spruce-soft)] hover:shadow-md focus-visible:ring-2 focus-visible:ring-[var(--teal)] focus-visible:ring-offset-2"
@@ -163,8 +163,8 @@ export function OverviewDashboard({
             </strong>
             <p className="mb-0 text-xs leading-5 text-[var(--muted)]">
               {data.range.period === "all"
-                ? "Projects with a City-dated qualifying permit episode."
-                : `Qualifying City permit episodes that began in ${periodPhrase}.`}
+                ? "Core-area projects with a City-dated qualifying permit episode."
+                : `Core-area City permit episodes that began in ${periodPhrase}.`}
             </p>
           </Card>
           {[
@@ -196,7 +196,7 @@ export function OverviewDashboard({
                 {value}
               </strong>
               <p className="mb-0 text-xs leading-5 text-[var(--muted)]">
-                City permit records with this milestone in the selected period.
+                Core-area City permit records with this milestone in the selected period.
               </p>
             </Card>
           ))}
@@ -232,7 +232,7 @@ export function OverviewDashboard({
           <Card className="p-5">
             <div className="section-head">
               <div>
-                <div className="eyebrow">{data.range.windowLabel}</div>
+                <div className="eyebrow">{data.range.windowLabel} · Core infill area</div>
                 <h2>Neighbourhood activity</h2>
               </div>
             </div>
@@ -269,7 +269,7 @@ export function OverviewDashboard({
           <Card className="p-5">
             <div className="section-head">
               <div>
-                <div className="eyebrow">{data.range.windowLabel} · Portfolio mix</div>
+                <div className="eyebrow">{data.range.windowLabel} · Core-area portfolio mix</div>
                 <h2>Project categories</h2>
               </div>
             </div>

@@ -20,6 +20,7 @@ const weightLabels: Record<string, string> = {
   recognizedResidentialBuildingType: "Recognized residential building type",
   constructionValueAboveThreshold: "Construction value above threshold",
   renovationOnly: "Renovation-only evidence",
+  outsideCoreInfillArea: "Outside the core infill area",
 };
 
 export default async function RulesPage({
@@ -140,7 +141,7 @@ export default async function RulesPage({
           </form>
           {preview ? (
             <div className="mt-5">
-              <div className="grid gap-3 sm:grid-cols-2">
+              <div className="grid gap-3 sm:grid-cols-3">
                 <div className="rounded-lg bg-[#f7f8f5] p-3">
                   <span className="text-xs text-[var(--muted)]">Computed category</span>
                   <strong className="mt-1 block text-sm text-[var(--spruce)]">
@@ -151,6 +152,12 @@ export default async function RulesPage({
                   <span className="text-xs text-[var(--muted)]">Computed stage</span>
                   <strong className="mt-1 block text-sm text-[var(--spruce)]">
                     {PROJECT_STAGE_LABELS[preview.computedStage]}
+                  </strong>
+                </div>
+                <div className="rounded-lg bg-[#f7f8f5] p-3">
+                  <span className="text-xs text-[var(--muted)]">Core-area status</span>
+                  <strong className="mt-1 block text-sm text-[var(--spruce)]">
+                    {preview.infillAreaClassification.replaceAll("_", " ").toLowerCase()}
                   </strong>
                 </div>
               </div>

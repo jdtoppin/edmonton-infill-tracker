@@ -8,6 +8,7 @@ import {
   INFILL_PROJECT_CATEGORY,
 } from "../../src/domain/infill-classification";
 import { createInfillScoringConfig } from "../../src/domain/infill-scoring-config";
+import { INFILL_AREA_CLASSIFICATION } from "../../src/domain/edmonton-core-infill-area";
 
 describe("rule-based infill classification and confidence scoring", () => {
   it("combines related demolition, development, and building events", () => {
@@ -58,6 +59,57 @@ describe("rule-based infill classification and confidence scoring", () => {
     expect(result.plainLanguageExplanation).toContain(
       "Demolition preceded construction by 45 days",
     );
+  });
+
+  it("caps otherwise perfect outside-core evidence below high-confidence reporting", () => {
+    const events = [
+      {
+        permitType: "Demolition Permit",
+        workDescription: "Demolish the existing single detached house",
+        eventDate: "2026-01-01",
+      },
+      {
+        permitType: "Development Permit",
+        permitSubtype: "New",
+        workDescription: "Construct a new semi-detached dwelling",
+        buildingType: "Semi-detached residential",
+        unitsAdded: 2,
+        constructionValue: 700_000,
+        eventDate: "2026-02-15",
+      },
+      {
+        permitType: "Building Permit",
+        permitSubtype: "New building",
+        workDescription: "New semi-detached dwelling",
+        buildingType: "Semi-detached residential",
+        unitsAdded: 2,
+        constructionValue: 700_000,
+        eventDate: "2026-03-01",
+      },
+    ] as const;
+
+    const outside = classifyInfillProject({
+      events,
+      infillAreaClassification: INFILL_AREA_CLASSIFICATION.outsideCore,
+    });
+    expect(outside.confidenceScore).toBe(60);
+    expect(outside.scoreExplanation).toContainEqual(
+      expect.objectContaining({ rule: "outsideCoreInfillArea", points: -40 }),
+    );
+    expect(outside.plainLanguageExplanation).toContain("outside the tracker's 2026-08-02 core");
+
+    expect(
+      classifyInfillProject({
+        events,
+        infillAreaClassification: INFILL_AREA_CLASSIFICATION.core,
+      }).confidenceScore,
+    ).toBe(100);
+    expect(
+      classifyInfillProject({
+        events,
+        infillAreaClassification: INFILL_AREA_CLASSIFICATION.unknown,
+      }).confidenceScore,
+    ).toBe(100);
   });
 
   it("uses dataset provenance to recognize Edmonton permit families with non-generic labels", () => {
