@@ -66,7 +66,10 @@ export function ProjectTimeline({
           <article className="rounded-xl border border-[var(--border)] bg-white p-4">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
-                <div className="eyebrow">{dateLabel(entry.date)}</div>
+                <div className="eyebrow">
+                  {entry.milestoneType === "OBSERVED" ? "First observed by Infill Tracker · " : ""}
+                  {dateLabel(entry.date)}
+                </div>
                 <h3 className="mt-1 mb-0 text-base font-bold text-[var(--spruce)]">
                   {entry.stageLabel}
                 </h3>
@@ -103,6 +106,11 @@ export function ProjectTimeline({
             </dl>
             {entry.description && (
               <p className="mt-4 mb-0 text-sm leading-6 text-[var(--muted)]">{entry.description}</p>
+            )}
+            {entry.milestoneType === "OBSERVED" && (
+              <p className="mt-4 mb-0 rounded-lg bg-[#f7f8f5] px-3 py-2 text-xs leading-5 text-[var(--muted)]">
+                The City record does not publish an application, issue, or occupancy date.
+              </p>
             )}
             <div className="mt-4 flex flex-wrap gap-3 text-xs font-semibold">
               {entry.source.datasetUrl && (

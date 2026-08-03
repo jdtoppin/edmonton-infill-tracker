@@ -20,6 +20,7 @@ type NeighbourhoodActivityMapProps = {
   areas: readonly ActivityArea[];
   mapStyleUrl?: string | null;
   mapTileUrl?: string | null;
+  range: DashboardOverview["range"];
 };
 
 type MapState = "loading" | "ready" | "empty" | "unsupported" | "error";
@@ -83,7 +84,12 @@ export function NeighbourhoodActivityMap({
   areas,
   mapStyleUrl,
   mapTileUrl,
+  range,
 }: NeighbourhoodActivityMapProps) {
+  const periodPhrase =
+    range.period === "all"
+      ? "all City-dated history"
+      : `the last ${range.label.toLocaleLowerCase("en-CA")}`;
   const visibleAreas = useMemo(() => areas.slice(0, 10), [areas]);
   const mappedAreas = useMemo(() => visibleAreas.filter(isMappable), [visibleAreas]);
   const [selectedId, setSelectedId] = useState<string | null>(
@@ -175,7 +181,7 @@ export function NeighbourhoodActivityMap({
               markerButton.textContent = String(area.count);
               markerButton.setAttribute(
                 "aria-label",
-                `${area.name}: ${area.count} active ${area.count === 1 ? "project" : "projects"} at the average mapped-project location`,
+                `${area.name}: ${area.count} ${area.count === 1 ? "project" : "projects"} with qualifying activity in ${periodPhrase}, at the average mapped-project location`,
               );
               markerButton.addEventListener("click", () => selectArea(area.id, false));
 
@@ -230,7 +236,18 @@ export function NeighbourhoodActivityMap({
       map?.remove();
       mapRef.current = null;
     };
-  }, [mapStyleUrl, mapTileUrl, mappedAreas, maximumCount, selectArea]);
+  }, [mapStyleUrl, mapTileUrl, mappedAreas, maximumCount, periodPhrase, selectArea]);
+
+  const selectedProjectHref = selected
+    ? (() => {
+        const params = new URLSearchParams({ neighbourhood: selected.cityId });
+        if (range.from) {
+          params.set("from", range.from);
+        }
+        params.set("to", range.through);
+        return `/projects?${params.toString()}`;
+      })()
+    : "/projects";
 
   const unavailable =
     mapState === "empty" || mapState === "unsupported" || mapState === "error"
@@ -241,11 +258,12 @@ export function NeighbourhoodActivityMap({
     <Card className="mt-4 overflow-hidden" data-overview-map data-map-state={mapState}>
       <div className="flex flex-wrap items-start justify-between gap-4 border-b border-[var(--border-soft)] px-5 py-4">
         <div>
-          <div className="eyebrow">Leading neighbourhood distribution</div>
+          <div className="eyebrow">{range.windowLabel} · Core infill area</div>
           <h2 className="m-0 text-base font-bold text-[var(--spruce)]">Project activity map</h2>
           <p className="mt-1 mb-0 text-xs leading-5 text-[var(--muted)]">
-            Up to ten leading neighbourhoods are shown. Each circle is placed at the average
-            mapped-project location; circles do not represent neighbourhood boundaries.
+            Up to ten leading neighbourhoods inside Anthony Henday and between Yellowhead Trail and
+            Whitemud Drive are shown. Each circle is placed at the average mapped-project location;
+            circles do not represent neighbourhood boundaries.
           </p>
         </div>
         <div className="inline-flex items-center gap-2 rounded-full bg-[var(--teal-soft)] px-3 py-1.5 text-[11px] font-semibold text-[var(--teal)]">
@@ -307,11 +325,11 @@ export function NeighbourhoodActivityMap({
                 {selected.count.toLocaleString("en-CA")}
               </strong>
               <p className="mt-1 text-xs leading-5 text-[var(--muted)]">
-                Active {selected.count === 1 ? "project" : "projects"} currently grouped in this
-                neighbourhood.
+                {selected.count === 1 ? "Project" : "Projects"} with a qualifying City permit
+                milestone in {periodPhrase}.
               </p>
               <Link
-                href={`/projects?neighbourhood=${encodeURIComponent(selected.cityId)}`}
+                href={selectedProjectHref}
                 className="mt-2 inline-flex min-h-10 items-center justify-center gap-2 rounded-lg bg-[var(--teal)] px-4 text-xs font-semibold text-white no-underline transition-colors hover:bg-[var(--spruce-soft)] focus-visible:ring-2 focus-visible:ring-[var(--teal)] focus-visible:ring-offset-2"
               >
                 Explore this neighbourhood <ArrowRight size={14} aria-hidden="true" />

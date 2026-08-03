@@ -11,8 +11,14 @@ import {
   RunStatus,
   UserRole,
 } from "../../generated/prisma/enums";
-import { classifyInfillProject } from "../../domain/infill-classification";
-import { createInfillScoringConfig } from "../../domain/infill-scoring-config";
+import { classifyInfillProject, INFILL_EVENT_ROLE } from "../../domain/infill-classification";
+import {
+  classifyEdmontonCoreInfillArea,
+  CORE_INFILL_AREA_POLICY,
+  INFILL_AREA_CLASSIFICATION,
+  type InfillAreaClassification,
+} from "../../domain/edmonton-core-infill-area";
+import { configuredInfillScoringConfig } from "../../domain/infill-scoring-config";
 import { getSiteAddressKey } from "../../domain/project-matching";
 import {
   buildProjectMilestones,
@@ -73,9 +79,14 @@ async function getProjectForAggregation(transaction: Transaction, projectId: str
   return transaction.project.findUnique({
     where: { id: projectId },
     include: {
+      address: { select: { latitude: true, longitude: true } },
       neighbourhood: { select: { name: true } },
       events: {
-        include: { permitEvent: true },
+        include: {
+          permitEvent: {
+            include: { address: { select: { latitude: true, longitude: true } } },
+          },
+        },
         orderBy: [{ eventDate: "asc" }, { permitEventId: "asc" }],
       },
     },
@@ -83,6 +94,45 @@ async function getProjectForAggregation(transaction: Transaction, projectId: str
 }
 
 type ProjectForAggregation = NonNullable<Awaited<ReturnType<typeof getProjectForAggregation>>>;
+
+function classifyCoordinates(coordinates: {
+  latitude: { toString(): string } | number | null;
+  longitude: { toString(): string } | number | null;
+}): InfillAreaClassification {
+  return classifyEdmontonCoreInfillArea({
+    latitude: coordinates.latitude === null ? null : Number(coordinates.latitude),
+    longitude: coordinates.longitude === null ? null : Number(coordinates.longitude),
+  });
+}
+
+function classifyProjectInfillArea(project: ProjectForAggregation): {
+  classification: InfillAreaClassification;
+  coordinateSource: "PROJECT_ADDRESS" | "LINKED_PERMIT_ADDRESSES" | "UNKNOWN";
+} {
+  const projectAddressClassification = classifyCoordinates(project.address);
+  if (projectAddressClassification !== INFILL_AREA_CLASSIFICATION.unknown) {
+    return {
+      classification: projectAddressClassification,
+      coordinateSource: "PROJECT_ADDRESS",
+    };
+  }
+
+  const linkedPermitClassifications = new Set(
+    project.events
+      .map(({ permitEvent }) => classifyCoordinates(permitEvent.address))
+      .filter((classification) => classification !== INFILL_AREA_CLASSIFICATION.unknown),
+  );
+  if (linkedPermitClassifications.size === 1) {
+    return {
+      classification: [...linkedPermitClassifications][0]!,
+      coordinateSource: "LINKED_PERMIT_ADDRESSES",
+    };
+  }
+  return {
+    classification: INFILL_AREA_CLASSIFICATION.unknown,
+    coordinateSource: "UNKNOWN",
+  };
+}
 
 function maximum(values: Array<number | null>): number | null {
   const present = values.filter(
@@ -115,54 +165,49 @@ export function requiresMarketReview(
 function calculateProjectState(project: ProjectForAggregation) {
   const permits = project.events.map(({ permitEvent }) => permitEvent);
   const milestones = buildProjectMilestones(permits);
-  const estimatedUnits = maximum(permits.map(({ unitsAdded }) => unitsAdded));
-  const estimatedConstructionValue = maximum(
-    permits.map(({ constructionValue }) =>
-      constructionValue === null ? null : Number(constructionValue),
-    ),
-  );
-  const configuredThreshold = process.env.INFILL_HIGH_VALUE_THRESHOLD?.trim();
-  const highConstructionValueThreshold = configuredThreshold
-    ? Number(configuredThreshold)
-    : undefined;
-  if (
-    highConstructionValueThreshold !== undefined &&
-    (!Number.isFinite(highConstructionValueThreshold) || highConstructionValueThreshold < 0)
-  ) {
-    throw new ProjectIntelligenceError(
-      "INFILL_HIGH_VALUE_THRESHOLD must be a non-negative number.",
-    );
-  }
+  const config = configuredInfillScoringConfig();
+  const projectInfillArea = classifyProjectInfillArea(project);
+  const infillAreaClassification = projectInfillArea.classification;
+  const classificationEvents = permits.map((permit) => ({
+    sourceDataset:
+      permit.sourceDataset === "development" || permit.sourceDataset === "building"
+        ? permit.sourceDataset
+        : null,
+    permitType: permit.permitType,
+    permitSubtype: permit.permitSubtype,
+    status: permit.status,
+    workDescription: permit.workDescription,
+    buildingType: permit.buildingType,
+    unitsAdded: permit.unitsAdded,
+    constructionValue: permit.constructionValue === null ? null : Number(permit.constructionValue),
+    applicationDate: permit.applicationDate,
+    issueDate: permit.issueDate,
+    occupancyGrantedDate: permit.occupancyGrantedDate,
+    observedAt: permit.createdAt,
+  }));
   const classification = classifyInfillProject(
     {
       neighbourhood: project.neighbourhood.name,
-      estimatedUnits,
-      estimatedConstructionValue,
       marketListingSignal: project.marketListingStatus === "CONFIRMED_MATCH",
-      events: permits.map((permit) => ({
-        sourceDataset:
-          permit.sourceDataset === "development" || permit.sourceDataset === "building"
-            ? permit.sourceDataset
-            : null,
-        permitType: permit.permitType,
-        permitSubtype: permit.permitSubtype,
-        workDescription: permit.workDescription,
-        buildingType: permit.buildingType,
-        unitsAdded: permit.unitsAdded,
-        constructionValue:
-          permit.constructionValue === null ? null : Number(permit.constructionValue),
-        applicationDate: permit.applicationDate,
-        issueDate: permit.issueDate,
-      })),
+      infillAreaClassification,
+      events: classificationEvents,
     },
-    createInfillScoringConfig(
-      highConstructionValueThreshold === undefined ? {} : { highConstructionValueThreshold },
+    config,
+  );
+  const selectedEvents = new Set(classification.episode.events);
+  const episodePermits = permits.filter((_permit, index) =>
+    selectedEvents.has(classificationEvents[index]!),
+  );
+  const estimatedUnits = maximum(episodePermits.map(({ unitsAdded }) => unitsAdded));
+  const estimatedConstructionValue = maximum(
+    episodePermits.map(({ constructionValue }) =>
+      constructionValue === null ? null : Number(constructionValue),
     ),
   );
   const computedCategory = classification.category as ProjectCategory;
-  const computedStage = determineProjectStage(permits) as ProjectStage;
+  const computedStage = determineProjectStage(episodePermits) as ProjectStage;
   const category = project.categoryOverride ?? computedCategory;
-  const occupancyDates = permits
+  const occupancyDates = episodePermits
     .map(({ occupancyGrantedDate }) => occupancyGrantedDate)
     .filter((date): date is Date => date !== null);
   const latestOccupancy = occupancyDates.sort((left, right) => right.getTime() - left.getTime())[0];
@@ -175,6 +220,8 @@ function calculateProjectState(project: ProjectForAggregation) {
     currentStage: project.stageOverride ?? computedStage,
     earliestEventDate: milestones.at(0)?.date ?? null,
     latestEventDate: milestones.at(-1)?.date ?? null,
+    infillStartDate: classification.episode.infillStartDate,
+    latestInfillActivityDate: classification.episode.latestInfillActivityDate,
     estimatedUnits,
     estimatedConstructionValue,
     marketReviewRequired: requiresMarketReview(
@@ -183,6 +230,7 @@ function calculateProjectState(project: ProjectForAggregation) {
       project.marketLastCheckedAt,
     ),
     confidenceScore: classification.confidenceScore,
+    infillAreaClassification,
     confidenceExplanation: {
       summary: classification.plainLanguageExplanation,
       score: classification.confidenceScore,
@@ -194,6 +242,26 @@ function calculateProjectState(project: ProjectForAggregation) {
       timeline: {
         demolitionToConstructionDays: classification.timeline.demolitionToConstructionDays,
         withinConfiguredWindow: classification.timeline.withinConfiguredWindow,
+      },
+      episode: {
+        maxLookbackDays: config.maxEpisodeGapDays,
+        infillStartDate: classification.episode.infillStartDate?.toISOString() ?? null,
+        latestInfillActivityDate:
+          classification.episode.latestInfillActivityDate?.toISOString() ?? null,
+        includedEventCount: classification.episode.events.length,
+        propertyOnlyEventCount: classification.episode.allAssessments.filter(
+          ({ role }) => role === INFILL_EVENT_ROLE.propertyOnly,
+        ).length,
+        excludedEventCount: classification.episode.allAssessments.filter(
+          ({ role }) => role === INFILL_EVENT_ROLE.excluded,
+        ).length,
+      },
+      geography: {
+        classification: infillAreaClassification,
+        coordinateSource: projectInfillArea.coordinateSource,
+        policyName: CORE_INFILL_AREA_POLICY.name,
+        policyVersion: CORE_INFILL_AREA_POLICY.policyVersion,
+        geometrySha256: CORE_INFILL_AREA_POLICY.geometrySha256,
       },
       computedCategory,
       computedStage,
@@ -231,10 +299,13 @@ export async function recomputeProject(
       currentStage: state.currentStage,
       earliestEventDate: state.earliestEventDate,
       latestEventDate: state.latestEventDate,
+      infillStartDate: state.infillStartDate,
+      latestInfillActivityDate: state.latestInfillActivityDate,
       estimatedUnits: state.estimatedUnits,
       estimatedConstructionValue: state.estimatedConstructionValue,
       marketReviewRequired: state.marketReviewRequired,
       infillConfidence: state.confidenceScore,
+      infillAreaClassification: state.infillAreaClassification,
       confidenceExplanation: state.confidenceExplanation,
     },
   });

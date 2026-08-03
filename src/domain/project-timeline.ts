@@ -13,6 +13,7 @@ export const PROJECT_STAGE = {
 export type ProjectStageValue = (typeof PROJECT_STAGE)[keyof typeof PROJECT_STAGE];
 
 export type ProjectMilestoneType =
+  | "OBSERVED"
   | "APPLICATION"
   | "DEMOLITION"
   | "DEVELOPMENT_PERMIT"
@@ -33,6 +34,7 @@ export interface TimelinePermitEvent {
   issueDate?: Date | null;
   occupancyGrantedDate?: Date | null;
   eventDate?: Date | null;
+  createdAt?: Date | null;
   importedAt?: Date | null;
 }
 
@@ -94,13 +96,44 @@ function validDate(value: Date | null | undefined): value is Date {
   return value instanceof Date && !Number.isNaN(value.getTime());
 }
 
+function edmontonObservationDate(value: Date): Date {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Edmonton",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(value);
+  const dateParts = Object.fromEntries(parts.map(({ type, value: part }) => [type, part]));
+  return new Date(
+    Date.UTC(Number(dateParts.year), Number(dateParts.month) - 1, Number(dateParts.day)),
+  );
+}
+
+/**
+ * Returns the non-null date used to order the persisted ProjectEvent link.
+ * `createdAt`, `eventDate`, and `importedAt` are observation fallbacks only; callers must use
+ * buildProjectMilestones when they need the date's civic meaning.
+ */
 export function projectEventDate(event: TimelinePermitEvent): Date {
   if (validDate(event.issueDate)) return event.issueDate;
   if (validDate(event.applicationDate)) return event.applicationDate;
   if (validDate(event.occupancyGrantedDate)) return event.occupancyGrantedDate;
+  if (validDate(event.createdAt)) return edmontonObservationDate(event.createdAt);
   if (validDate(event.eventDate)) return event.eventDate;
-  if (validDate(event.importedAt)) return event.importedAt;
+  if (validDate(event.importedAt)) return edmontonObservationDate(event.importedAt);
   throw new Error(`Permit event ${event.id} has no usable timeline date.`);
+}
+
+/**
+ * Returns when an otherwise-undated source row was first seen by the tracker.
+ * This is an observation timestamp, not a City application, issue, or occupancy
+ * date, and must never be presented as one of those civic milestones.
+ */
+function projectObservationDate(event: TimelinePermitEvent): Date | null {
+  if (validDate(event.createdAt)) return edmontonObservationDate(event.createdAt);
+  if (validDate(event.eventDate)) return event.eventDate;
+  if (validDate(event.importedAt)) return edmontonObservationDate(event.importedAt);
+  return null;
 }
 
 export function buildProjectMilestones(events: readonly TimelinePermitEvent[]): ProjectMilestone[] {
@@ -125,11 +158,15 @@ export function buildProjectMilestones(events: readonly TimelinePermitEvent[]): 
         ...issuedMilestone(event),
       });
     } else if (!validDate(event.applicationDate) && !validDate(event.occupancyGrantedDate)) {
-      milestones.push({
-        permitEventId: event.id,
-        date: projectEventDate(event),
-        ...issuedMilestone(event),
-      });
+      const observedAt = projectObservationDate(event);
+      if (observedAt) {
+        milestones.push({
+          permitEventId: event.id,
+          type: "OBSERVED",
+          stage: PROJECT_STAGE.discovered,
+          date: observedAt,
+        });
+      }
     }
     if (validDate(event.occupancyGrantedDate)) {
       milestones.push({

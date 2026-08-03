@@ -19,14 +19,23 @@ const columns = [
   ["Category", (project: ProjectListItem) => project.categoryLabel],
   ["Stage", (project: ProjectListItem) => project.stageLabel],
   ["Confidence score", (project: ProjectListItem) => project.confidence],
-  ["Earliest permit date", (project: ProjectListItem) => project.firstDetectedDate],
-  ["Latest event date", (project: ProjectListItem) => project.latestEventDate],
+  ["Infill start", (project: ProjectListItem) => project.infillStartDate],
+  ["Latest infill milestone", (project: ProjectListItem) => project.latestInfillActivityDate],
   ["Estimated units", (project: ProjectListItem) => project.units],
   ["Construction value (CAD)", (project: ProjectListItem) => project.constructionValue],
   ["Review status", (project: ProjectListItem) => project.reviewStatusLabel],
-  ["Latest permit type", (project: ProjectListItem) => project.latestEvent?.permitType],
-  ["Latest permit subtype", (project: ProjectListItem) => project.latestEvent?.permitSubtype],
-  ["Latest permit status", (project: ProjectListItem) => project.latestEvent?.status],
+  [
+    "Latest linked property permit type",
+    (project: ProjectListItem) => project.latestEvent?.permitType,
+  ],
+  [
+    "Latest linked property permit subtype",
+    (project: ProjectListItem) => project.latestEvent?.permitSubtype,
+  ],
+  [
+    "Latest linked property permit status",
+    (project: ProjectListItem) => project.latestEvent?.status,
+  ],
   ["Project URL", (project: ProjectListItem) => `/projects/${encodeURIComponent(project.id)}`],
 ] as const;
 

@@ -86,6 +86,8 @@ describe("project read-model presentation", () => {
     const markers = getPreviewProjectMarkers(filters, now);
     const detail = getPreviewProjectDetail("preview-ritchie-suite", now);
     const dashboard = getPreviewDashboardOverview(now);
+    const monthDashboard = getPreviewDashboardOverview(now, 30);
+    const allTimeDashboard = getPreviewDashboardOverview(now, "all");
 
     expect(page.dataMode).toBe("preview");
     expect(page.items.map(({ id }) => id)).toEqual(["preview-ritchie-suite"]);
@@ -100,6 +102,13 @@ describe("project read-model presentation", () => {
     expect(dashboard.warnings).toContainEqual(
       expect.objectContaining({ code: "PREVIEW_DATA", severity: "info" }),
     );
+    expect(dashboard.range).toMatchObject({ period: 7, from: "2026-07-27" });
+    expect(dashboard.categoryBreakdown).toHaveLength(1);
+    expect(monthDashboard.range.period).toBe(30);
+    expect(monthDashboard.categoryBreakdown).toHaveLength(3);
+    expect(monthDashboard.potentialInfillStarts).toBe(2);
+    expect(allTimeDashboard.range.from).toBeNull();
+    expect(allTimeDashboard.categoryBreakdown).toHaveLength(3);
     expect(getPreviewProjectDetail("", now)).toBeNull();
   });
 });

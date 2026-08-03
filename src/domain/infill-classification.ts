@@ -1,4 +1,9 @@
 import { DEFAULT_INFILL_SCORING_CONFIG, type InfillScoringConfig } from "./infill-scoring-config";
+import {
+  CORE_INFILL_AREA_POLICY,
+  INFILL_AREA_CLASSIFICATION,
+  type InfillAreaClassification,
+} from "./edmonton-core-infill-area";
 
 /** Persistence-compatible literals kept here to avoid a generated-client dependency. */
 export const INFILL_PROJECT_CATEGORY = {
@@ -35,13 +40,17 @@ export interface InfillPermitEvent {
   sourceDataset?: string | null;
   permitType?: string | null;
   permitSubtype?: string | null;
+  status?: string | null;
   workDescription?: string | null;
   buildingType?: string | null;
   unitsAdded?: number | null;
   constructionValue?: number | null;
   applicationDate?: string | Date | null;
   issueDate?: string | Date | null;
+  occupancyGrantedDate?: string | Date | null;
   eventDate?: string | Date | null;
+  /** Stable tracker observation time, used only to order otherwise-undated evidence. */
+  observedAt?: string | Date | null;
   /** Defaults to true; set false when evaluating an unverified related event. */
   sameAddress?: boolean;
 }
@@ -53,6 +62,8 @@ export interface InfillClassificationInput {
   estimatedConstructionValue?: number | null;
   /** A separate marketplace/social signal; permit language never infers this. */
   marketListingSignal?: boolean;
+  /** Versioned project geography; unknown locations are deliberately not penalized. */
+  infillAreaClassification?: InfillAreaClassification;
 }
 
 export type InfillScoringRule =
@@ -75,6 +86,40 @@ export interface InfillClassificationResult {
   scoreExplanation: InfillScoreExplanation[];
   plainLanguageExplanation: string;
   timeline: InfillTimelineAnalysis;
+  episode: InfillEpisodeSelection;
+}
+
+export const INFILL_EVENT_ROLE = {
+  principalResidential: "PRINCIPAL_RESIDENTIAL",
+  principalDemolition: "PRINCIPAL_DEMOLITION",
+  residentialSupporting: "RESIDENTIAL_SUPPORTING",
+  propertyOnly: "PROPERTY_ONLY",
+  excluded: "EXCLUDED",
+} as const;
+
+export type InfillEventRole = (typeof INFILL_EVENT_ROLE)[keyof typeof INFILL_EVENT_ROLE];
+
+export interface InfillEventAssessment {
+  event: InfillPermitEvent;
+  role: InfillEventRole;
+  demolition: boolean;
+  newResidentialConstruction: boolean;
+  accessoryOrPropertyOnly: boolean;
+  inactive: boolean;
+  commercialOrIndustrial: boolean;
+  sourceStartDate: Date | null;
+  sourceEndDate: Date | null;
+  orderingDate: Date | null;
+}
+
+export interface InfillEpisodeSelection {
+  events: readonly InfillPermitEvent[];
+  assessments: readonly InfillEventAssessment[];
+  allAssessments: readonly InfillEventAssessment[];
+  infillStartDate: Date | null;
+  latestInfillActivityDate: Date | null;
+  orderingStartDate: Date | null;
+  orderingEndDate: Date | null;
 }
 
 interface EventSignals {
@@ -87,6 +132,9 @@ interface EventSignals {
   buildingPermit: boolean;
   residentialBuilding: boolean;
   renovation: boolean;
+  inactive: boolean;
+  accessoryOrPropertyOnly: boolean;
+  commercialOrIndustrial: boolean;
   newDwellingLanguage: boolean;
   newResidentialConstruction: boolean;
   eventTime: number | null;
@@ -113,11 +161,28 @@ function containsAny(text: string, keywords: readonly string[]): boolean {
   return keywords.some((keyword) => paddedText.includes(` ${normalizedKeyword(keyword)} `));
 }
 
-function getEventTime(event: InfillPermitEvent): number | null {
-  const value = event.eventDate ?? event.issueDate ?? event.applicationDate;
+function parsedTime(value: string | Date | null | undefined): number | null {
   if (!value) return null;
   const parsed = value instanceof Date ? value.getTime() : Date.parse(value);
   return Number.isFinite(parsed) ? parsed : null;
+}
+
+function sourceEventTimes(event: InfillPermitEvent): number[] {
+  return [
+    parsedTime(event.applicationDate),
+    parsedTime(event.issueDate),
+    parsedTime(event.occupancyGrantedDate),
+    parsedTime(event.eventDate),
+  ].filter((value): value is number => value !== null);
+}
+
+function getEventTime(event: InfillPermitEvent): number | null {
+  return (
+    parsedTime(event.issueDate) ??
+    parsedTime(event.applicationDate) ??
+    parsedTime(event.eventDate) ??
+    parsedTime(event.occupancyGrantedDate)
+  );
 }
 
 function eventSignals(event: InfillPermitEvent, config: InfillScoringConfig): EventSignals {
@@ -145,35 +210,242 @@ function eventSignals(event: InfillPermitEvent, config: InfillScoringConfig): Ev
   const newConstructionIndicator =
     /\bnew\b/.test(allText) || containsAny(allText, config.keywords.newConstruction);
   const configuredNewDwelling = containsAny(descriptionText, config.keywords.newDwelling);
-  const flexibleNewDwelling = /\bnew\b.{0,50}\b(?:dwelling|house|residential)\b/.test(
-    descriptionText,
-  );
+  const flexibleNewDwelling =
+    /\bnew(?:\s+(?:one|two|three|four|\d+|single|semi|detached|residential|principal|storey|story)){0,6}\s+(?:dwelling|house)\b/.test(
+      descriptionText,
+    );
   const newDwellingLanguage = configuredNewDwelling || flexibleNewDwelling;
+  const habitableText = searchable(event.permitSubtype, event.workDescription);
+  const demolitionLanguage = containsAny(allText, config.keywords.demolition);
+  const principalResidentialForm =
+    /\b(?:single detached (?:house|dwelling)|detached (?:house|dwelling)|semi detached (?:house|dwelling)|duplex|row (?:house|housing|dwelling)|townhouse|town house|garden suite|garage suite|backyard house|cluster housing)\b/.test(
+      habitableText,
+    );
+  const principalConstructionLanguage =
+    /\b(?:construct|build|erect|construction of)\s+(?:(?:a|an|the)\s+)?(?:new\s+)?(?:(?:one|two|three|four|\d+)\s+(?:storey|story)\s+)?(?:residential use\s+)?(?:\d+\s+)?(?:dwelling(?:s)?(?:\s+units?)?(?:\s+of)?\s+)?(?:single detached (?:house|dwelling)|detached (?:house|dwelling)|semi detached (?:house|dwelling)|duplex|row (?:house|housing|dwelling)|townhouse|town house|garden suite|garage suite|backyard house|cluster housing)\b/.test(
+      habitableText,
+    ) ||
+    /\b(?:construct|build|erect)\s+(?:a\s+)?residential use (?:building|development) in the form of\s+(?:a\s+)?(?:\d+\s+)?(?:dwelling(?:s)?(?:\s+units?)?(?:\s+of)?\s+)?(?:single detached (?:house|dwelling)|detached (?:house|dwelling)|semi detached (?:house|dwelling)|duplex|row (?:house|housing|dwelling)|townhouse|town house|garden suite|garage suite|backyard house|cluster housing)\b/.test(
+      habitableText,
+    );
+  const principalHouseCombo =
+    /\bhouse (?:combo|combination)(?: permit)?\b/.test(permitText) && newConstructionIndicator;
+  const gardenSuiteLanguage = containsAny(habitableText, config.keywords.gardenSuite);
+  const suiteRemovalOrUseChange =
+    /\b(?:remove|demolish)(?:d|ed|ing)?\s+(?:(?:an|the|existing)\s+)?(?:garden suite|garage suite|backyard house)\b/.test(
+      descriptionText,
+    ) ||
+    /\b(?:garden suite|garage suite|backyard house)\s+(?:(?:is|to be)\s+)?(?:removed|demolished)\b/.test(
+      descriptionText,
+    ) ||
+    /\b(?:change|changing) (?:the )?use\b/.test(descriptionText) ||
+    /\bconvert(?:ed|ing)?\b/.test(descriptionText);
+  const positiveGardenSuiteConstruction =
+    gardenSuiteLanguage && newConstructionIndicator && !renovation && !suiteRemovalOrUseChange;
+  const explicitHabitableUse =
+    newDwellingLanguage ||
+    positiveGardenSuiteConstruction ||
+    principalConstructionLanguage ||
+    principalHouseCombo;
+  const accessoryOrPropertyOnly =
+    containsAny(allText, config.keywords.propertyOnly) &&
+    !explicitHabitableUse &&
+    !(demolitionLanguage && principalResidentialForm);
+  const inactive = containsAny(searchable(event.status), config.keywords.inactiveStatus);
+  const commercialOrIndustrial = containsAny(allText, config.keywords.commercialOrIndustrial);
+  const explicitNewPermit = /\bnew\b/.test(permitText);
   const explicitResidentialConstruction =
-    newDwellingLanguage || (categorySpecificConstruction && newConstructionIndicator);
+    explicitHabitableUse ||
+    (!renovation && !demolitionLanguage && categorySpecificConstruction && explicitNewPermit) ||
+    (!renovation &&
+      !demolitionLanguage &&
+      newConstructionIndicator &&
+      residentialBuilding &&
+      typeof event.unitsAdded === "number" &&
+      event.unitsAdded > 0);
   const newResidentialConstruction =
-    explicitResidentialConstruction ||
-    (newConstructionIndicator && residentialBuilding && !renovation);
+    !inactive &&
+    !accessoryOrPropertyOnly &&
+    !commercialOrIndustrial &&
+    explicitResidentialConstruction;
+
+  const sourceDatasetKnown =
+    event.sourceDataset === "development" || event.sourceDataset === "building";
 
   return {
     event,
     allText,
     descriptionText,
     permitText,
-    demolition: containsAny(allText, config.keywords.demolition),
+    demolition:
+      !inactive && !accessoryOrPropertyOnly && !commercialOrIndustrial && demolitionLanguage,
     developmentPermit:
       event.sourceDataset === "development" ||
-      containsAny(permitText, config.keywords.developmentPermit) ||
-      /\bdevelopment\b/.test(permitText),
+      (!sourceDatasetKnown &&
+        (containsAny(permitText, config.keywords.developmentPermit) ||
+          /\bdevelopment\b/.test(permitText))),
     buildingPermit:
       event.sourceDataset === "building" ||
-      containsAny(permitText, config.keywords.buildingPermit) ||
-      /\bbuilding\b/.test(permitText),
-    residentialBuilding,
-    renovation,
+      (!sourceDatasetKnown &&
+        (containsAny(permitText, config.keywords.buildingPermit) ||
+          /\bbuilding\b/.test(permitText))),
+    residentialBuilding:
+      residentialBuilding && !inactive && !accessoryOrPropertyOnly && !commercialOrIndustrial,
+    renovation: renovation && !inactive && !accessoryOrPropertyOnly && !commercialOrIndustrial,
+    inactive,
+    accessoryOrPropertyOnly,
+    commercialOrIndustrial,
     newDwellingLanguage,
     newResidentialConstruction,
     eventTime: getEventTime(event),
+  };
+}
+
+function dateFromTime(value: number | null): Date | null {
+  return value === null ? null : new Date(value);
+}
+
+export function assessInfillPermitEvent(
+  event: InfillPermitEvent,
+  config: InfillScoringConfig = DEFAULT_INFILL_SCORING_CONFIG,
+): InfillEventAssessment {
+  const signal = eventSignals(event, config);
+  const sourceTimes = sourceEventTimes(event);
+  const sourceStartTime = sourceTimes.length > 0 ? Math.min(...sourceTimes) : null;
+  const sourceEndTime = sourceTimes.length > 0 ? Math.max(...sourceTimes) : null;
+  const observedTime = parsedTime(event.observedAt);
+  const orderingTime = sourceEndTime ?? observedTime;
+  const role: InfillEventRole = signal.accessoryOrPropertyOnly
+    ? INFILL_EVENT_ROLE.propertyOnly
+    : signal.inactive
+      ? INFILL_EVENT_ROLE.excluded
+      : signal.commercialOrIndustrial
+        ? INFILL_EVENT_ROLE.excluded
+        : signal.demolition
+          ? INFILL_EVENT_ROLE.principalDemolition
+          : signal.newResidentialConstruction
+            ? INFILL_EVENT_ROLE.principalResidential
+            : signal.renovation ||
+                signal.residentialBuilding ||
+                (typeof event.unitsAdded === "number" && event.unitsAdded > 0)
+              ? INFILL_EVENT_ROLE.residentialSupporting
+              : INFILL_EVENT_ROLE.propertyOnly;
+
+  return {
+    event,
+    role,
+    demolition: signal.demolition,
+    newResidentialConstruction: signal.newResidentialConstruction,
+    accessoryOrPropertyOnly: signal.accessoryOrPropertyOnly,
+    inactive: signal.inactive,
+    commercialOrIndustrial: signal.commercialOrIndustrial,
+    sourceStartDate: dateFromTime(sourceStartTime),
+    sourceEndDate: dateFromTime(sourceEndTime),
+    orderingDate: dateFromTime(orderingTime),
+  };
+}
+
+interface MutableEpisode {
+  assessments: InfillEventAssessment[];
+  orderingStartTime: number;
+  orderingEndTime: number;
+}
+
+/**
+ * Selects the latest coherent infill episode at an address. Consecutive
+ * qualifying records first establish episode continuity, then the selected
+ * episode is capped at the configured lookback from its latest milestone.
+ * Property-only and inactive records never bridge otherwise separate projects.
+ */
+export function selectLatestInfillEpisode(
+  events: readonly InfillPermitEvent[],
+  config: InfillScoringConfig = DEFAULT_INFILL_SCORING_CONFIG,
+): InfillEpisodeSelection {
+  const allAssessments = events.map((event) => assessInfillPermitEvent(event, config));
+  const eligible = allAssessments.filter(
+    ({ role }) => role !== INFILL_EVENT_ROLE.propertyOnly && role !== INFILL_EVENT_ROLE.excluded,
+  );
+  const undated = eligible.filter(({ orderingDate }) => orderingDate === null);
+  const qualifying = eligible
+    .filter(
+      (assessment): assessment is InfillEventAssessment & { orderingDate: Date } =>
+        assessment.orderingDate !== null,
+    )
+    .sort((left, right) => {
+      const leftTime = left.sourceStartDate?.getTime() ?? left.orderingDate.getTime();
+      const rightTime = right.sourceStartDate?.getTime() ?? right.orderingDate.getTime();
+      return leftTime - rightTime;
+    });
+  const maximumGapMilliseconds = config.maxEpisodeGapDays * 24 * 60 * 60 * 1_000;
+  const episodes: MutableEpisode[] = [];
+
+  for (const assessment of qualifying) {
+    const sourceStartTime = assessment.sourceStartDate?.getTime();
+    const orderingTime = assessment.orderingDate.getTime();
+    const startTime = sourceStartTime ?? orderingTime;
+    const endTime = assessment.sourceEndDate?.getTime() ?? orderingTime;
+    const current = episodes.at(-1);
+    if (!current || startTime - current.orderingEndTime > maximumGapMilliseconds) {
+      episodes.push({
+        assessments: [assessment],
+        orderingStartTime: startTime,
+        orderingEndTime: endTime,
+      });
+    } else {
+      current.assessments.push(assessment);
+      current.orderingStartTime = Math.min(current.orderingStartTime, startTime);
+      current.orderingEndTime = Math.max(current.orderingEndTime, endTime);
+    }
+  }
+
+  const selected = episodes.at(-1);
+  if (!selected && undated.length > 0) {
+    return {
+      events: undated.map(({ event }) => event),
+      assessments: undated,
+      allAssessments,
+      infillStartDate: null,
+      latestInfillActivityDate: null,
+      orderingStartDate: null,
+      orderingEndDate: null,
+    };
+  }
+  if (!selected) {
+    return {
+      events: [],
+      assessments: [],
+      allAssessments,
+      infillStartDate: null,
+      latestInfillActivityDate: null,
+      orderingStartDate: null,
+      orderingEndDate: null,
+    };
+  }
+
+  const selectedCutoffTime = selected.orderingEndTime - maximumGapMilliseconds;
+  const selectedAssessments = selected.assessments.filter(
+    ({ orderingDate }) => orderingDate && orderingDate.getTime() >= selectedCutoffTime,
+  );
+  const sourceStarts = selectedAssessments.flatMap(({ sourceStartDate }) =>
+    sourceStartDate ? [sourceStartDate.getTime()] : [],
+  );
+  const sourceEnds = selectedAssessments.flatMap(({ sourceEndDate }) =>
+    sourceEndDate ? [sourceEndDate.getTime()] : [],
+  );
+  const orderingStarts = selectedAssessments.flatMap(({ sourceStartDate, orderingDate }) => {
+    const date = sourceStartDate ?? orderingDate;
+    return date ? [date.getTime()] : [];
+  });
+  return {
+    events: selectedAssessments.map(({ event }) => event),
+    assessments: selectedAssessments,
+    allAssessments,
+    infillStartDate: dateFromTime(sourceStarts.length > 0 ? Math.min(...sourceStarts) : null),
+    latestInfillActivityDate: dateFromTime(sourceEnds.length > 0 ? Math.max(...sourceEnds) : null),
+    orderingStartDate: dateFromTime(
+      orderingStarts.length > 0 ? Math.min(...orderingStarts) : selected.orderingStartTime,
+    ),
+    orderingEndDate: new Date(selected.orderingEndTime),
   };
 }
 
@@ -226,6 +498,7 @@ function determineCategory(
   // not the form being built, so prefer subtype/description/building type when
   // selecting a specific project category.
   const formText = signals
+    .filter((signal) => signal.newResidentialConstruction)
     .map(({ event }) => searchable(event.permitSubtype, event.workDescription, event.buildingType))
     .join(" ");
   const hasNewConstruction = signals.some((signal) => signal.newResidentialConstruction);
@@ -266,19 +539,26 @@ export function classifyInfillProject(
   input: InfillClassificationInput,
   config: InfillScoringConfig = DEFAULT_INFILL_SCORING_CONFIG,
 ): InfillClassificationResult {
-  const signals = input.events.map((event) => eventSignals(event, config));
+  const episode = selectLatestInfillEpisode(input.events, config);
+  const signals = episode.events.map((event) => eventSignals(event, config));
   const allText = signals.map((signal) => signal.allText).join(" ");
-  const commercialOrIndustrial = containsAny(allText, config.keywords.commercialOrIndustrial);
-  const demolitionAtSameAddress = signals.some(
+  const commercialOrIndustrial =
+    containsAny(allText, config.keywords.commercialOrIndustrial) ||
+    (signals.length === 0 &&
+      episode.allAssessments.some((assessment) => assessment.commercialOrIndustrial));
+  const hasDemolitionAtSameAddress = signals.some(
     (signal) => signal.demolition && signal.event.sameAddress !== false,
   );
   const newResidentialConstruction = signals.some((signal) => signal.newResidentialConstruction);
   const developmentAndBuildingPermit = signals.some(
     (developmentSignal, developmentIndex) =>
       developmentSignal.developmentPermit &&
+      developmentSignal.newResidentialConstruction &&
       signals.some(
         (buildingSignal, buildingIndex) =>
-          buildingIndex !== developmentIndex && buildingSignal.buildingPermit,
+          buildingIndex !== developmentIndex &&
+          buildingSignal.buildingPermit &&
+          buildingSignal.newResidentialConstruction,
       ),
   );
   const newDwellingLanguage = signals.some((signal) => signal.newDwellingLanguage);
@@ -293,6 +573,9 @@ export function classifyInfillProject(
   ]);
   const renovationOnly = signals.some((signal) => signal.renovation) && !newResidentialConstruction;
   const scoreExplanation: InfillScoreExplanation[] = [];
+  const timeline = analyzeTimeline(signals, config.demolitionToConstructionWindowDays);
+  const demolitionAtSameAddress =
+    hasDemolitionAtSameAddress && (!newResidentialConstruction || timeline.withinConfiguredWindow);
 
   const addRule = (
     matched: boolean,
@@ -344,6 +627,11 @@ export function classifyInfillProject(
     "renovationOnly",
     "The available language describes only renovation, alteration, or addition work.",
   );
+  addRule(
+    input.infillAreaClassification === INFILL_AREA_CLASSIFICATION.outsideCore,
+    "outsideCoreInfillArea",
+    `The mapped project is outside the tracker's ${CORE_INFILL_AREA_POLICY.policyVersion} core infill area (inside Anthony Henday, between Yellowhead Trail and Whitemud Drive).`,
+  );
 
   if (commercialOrIndustrial) {
     scoreExplanation.splice(0, scoreExplanation.length, {
@@ -359,7 +647,6 @@ export function classifyInfillProject(
   );
   const confidenceScore = commercialOrIndustrial ? 0 : Math.max(0, Math.min(100, unboundedScore));
   const category = determineCategory(input, signals, config, commercialOrIndustrial);
-  const timeline = analyzeTimeline(signals, config.demolitionToConstructionWindowDays);
   const reasons = scoreExplanation.map((explanation) => explanation.message).join(" ");
   const timelineSentence = timeline.withinConfiguredWindow
     ? ` Demolition preceded construction by ${timeline.demolitionToConstructionDays} days.`
@@ -373,6 +660,7 @@ export function classifyInfillProject(
     scoreExplanation,
     plainLanguageExplanation,
     timeline,
+    episode,
   };
 }
 

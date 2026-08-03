@@ -466,6 +466,7 @@ button {
 
 .period-control {
   display: flex;
+  flex-wrap: wrap;
   width: fit-content;
   gap: 3px;
   margin: 29px 0 12px;
@@ -475,7 +476,10 @@ button {
   padding: 3px;
 }
 
-.period-control button {
+.period-control :is(button, a) {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   min-height: 30px;
   border: 0;
   border-radius: 6px;
@@ -484,13 +488,19 @@ button {
   color: var(--muted);
   font-size: 10px;
   font-weight: 680;
+  text-decoration: none;
 }
 
-.period-control button:hover {
+.period-control :is(button, a):hover {
   color: var(--ink);
 }
 
-.period-control button.active {
+.period-control :is(button, a):focus-visible {
+  outline: 2px solid var(--teal);
+  outline-offset: 1px;
+}
+
+.period-control :is(button, a).active {
   background: white;
   color: var(--ink);
   box-shadow: 0 1px 3px rgb(23 48 51 / 10%);
@@ -1563,11 +1573,14 @@ button {
   }
 
   .period-control {
+    display: grid;
     width: 100%;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
   }
 
-  .period-control button {
-    flex: 1;
+  .period-control :is(button, a) {
+    min-width: 0;
+    padding-inline: 6px;
   }
 
   .lifecycle-head {

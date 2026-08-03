@@ -115,11 +115,11 @@ export function ProjectFiltersForm({
         </summary>
         <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
           <label className="text-xs font-semibold">
-            Activity from
+            Latest infill milestone from
             <input name="from" type="date" defaultValue={filters.from} className={fieldClass} />
           </label>
           <label className="text-xs font-semibold">
-            Activity to
+            Latest infill milestone to
             <input name="to" type="date" defaultValue={filters.to} className={fieldClass} />
           </label>
           <label className="text-xs font-semibold">

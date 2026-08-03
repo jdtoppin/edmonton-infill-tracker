@@ -33,7 +33,7 @@ test("@responsive shows the live permit intelligence overview", async ({ page })
   await expect(
     page.getByRole("heading", { name: "Follow infill from first permit to occupancy." }),
   ).toBeVisible();
-  await expect(page.getByText("New projects detected", { exact: true })).toBeVisible();
+  await expect(page.getByText("Potential infill starts", { exact: true })).toBeVisible();
   await expect(page.getByRole("heading", { name: "High-confidence projects" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Project activity map" })).toBeVisible();
   const overviewMap = page.locator("[data-overview-map]");
@@ -59,11 +59,50 @@ test("@responsive shows the live permit intelligence overview", async ({ page })
   expect(await exploreLink.evaluate((element) => getComputedStyle(element).color)).toBe(
     "rgb(255, 255, 255)",
   );
-  await page.getByRole("button", { name: "30 days" }).click();
-  await expect(page.getByRole("button", { name: "30 days" })).toHaveAttribute(
-    "aria-pressed",
+  for (const label of [
+    "7 days",
+    "30 days",
+    "90 days",
+    "180 days",
+    "365 days",
+    "Two years",
+    "All time",
+  ]) {
+    await expect(page.getByRole("link", { name: label, exact: true })).toBeVisible();
+  }
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(
+    true,
+  );
+
+  await page.getByRole("link", { name: "30 days", exact: true }).click();
+  await expect(page).toHaveURL(/\?period=30$/);
+  await expect(page.getByRole("link", { name: "30 days", exact: true })).toHaveAttribute(
+    "aria-current",
     "true",
   );
+  await expect(page.getByRole("region", { name: "Past 30 days summary" })).toBeVisible();
+  await expect(exploreLink).toHaveAttribute("href", /from=\d{4}-\d{2}-\d{2}&to=\d{4}-\d{2}-\d{2}/);
+  await expect(page.getByRole("link", { name: "View all", exact: true })).toHaveAttribute(
+    "href",
+    /minConfidence=80&from=\d{4}-\d{2}-\d{2}&to=\d{4}-\d{2}-\d{2}/,
+  );
+
+  await page.getByRole("link", { name: "All time", exact: true }).click();
+  await expect(page).toHaveURL(/\?period=all$/);
+  await expect(page.getByRole("link", { name: "All time", exact: true })).toHaveAttribute(
+    "aria-current",
+    "true",
+  );
+  await expect(page.getByRole("region", { name: "All time summary" })).toBeVisible();
+  await expect(exploreLink).toHaveAttribute("href", /^\/projects\?to=\d{4}-\d{2}-\d{2}$/);
+  await expect(exploreLink).not.toHaveAttribute("href", /from=/);
+  await expect(page.getByRole("link", { name: "View all", exact: true })).toHaveAttribute(
+    "href",
+    /^\/projects\?minConfidence=80&to=\d{4}-\d{2}-\d{2}$/,
+  );
+  const neighbourhoodLink = page.locator('a[href^="/projects?neighbourhood="]').first();
+  await expect(neighbourhoodLink).toHaveAttribute("href", /neighbourhood=.+&to=\d{4}-\d{2}-\d{2}/);
+  await expect(neighbourhoodLink).not.toHaveAttribute("href", /from=/);
 });
 
 test("keeps the overview Explore projects button stationary on hover", async ({ page }) => {
@@ -88,7 +127,7 @@ test("renders the token-free geographic basemap with visible attribution", async
     }),
   );
 
-  await page.goto("/");
+  await page.goto("/?period=all");
   const overviewMap = page.locator("[data-overview-map]");
   await expect(overviewMap).toHaveAttribute("data-map-state", "ready", { timeout: 15_000 });
   await expect(
@@ -107,11 +146,11 @@ test("@responsive filters projects and opens a normalized permit timeline", asyn
   expect(await activeListView.evaluate((element) => getComputedStyle(element).color)).toBe(
     "rgb(23, 100, 115)",
   );
-  const earliestPermitLabel = page
+  const infillStartLabel = page
     .locator("th:visible a, dt:visible")
-    .filter({ hasText: /^Earliest permit$/ })
+    .filter({ hasText: /^Infill start$/ })
     .first();
-  await expect(earliestPermitLabel).toBeVisible();
+  await expect(infillStartLabel).toBeVisible();
   const projectLink = page
     .locator('a[href^="/projects/"]:visible')
     .filter({ hasText: "99901" })

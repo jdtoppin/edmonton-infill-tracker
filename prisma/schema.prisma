@@ -39,6 +39,12 @@ enum ProjectStage {
   CANCELLED
 }
 
+enum InfillAreaClassification {
+  CORE
+  OUTSIDE_CORE
+  UNKNOWN
+}
+
 enum ReviewStatus {
   PENDING
   CONFIRMED
@@ -310,34 +316,37 @@ model PermitEvent {
 }
 
 model Project {
-  id                         String              @id @default(cuid())
-  projectKey                 String              @unique
+  id                         String                   @id @default(cuid())
+  projectKey                 String                   @unique
   addressId                  String
   neighbourhoodId            String
   title                      String
   category                   ProjectCategory
-  computedCategory           ProjectCategory     @default(NOT_RELEVANT)
+  computedCategory           ProjectCategory          @default(NOT_RELEVANT)
   categoryOverride           ProjectCategory?
   currentStage               ProjectStage
-  computedStage              ProjectStage        @default(DISCOVERED)
+  computedStage              ProjectStage             @default(DISCOVERED)
   stageOverride              ProjectStage?
-  earliestEventDate          DateTime?           @db.Date
-  latestEventDate            DateTime?           @db.Date
+  earliestEventDate          DateTime?                @db.Date
+  latestEventDate            DateTime?                @db.Date
+  infillStartDate            DateTime?                @db.Date
+  latestInfillActivityDate   DateTime?                @db.Date
   estimatedUnits             Int?
-  estimatedConstructionValue Decimal?            @db.Decimal(15, 2)
-  marketListingStatus        MarketListingStatus @default(NOT_CHECKED)
+  estimatedConstructionValue Decimal?                 @db.Decimal(15, 2)
+  marketListingStatus        MarketListingStatus      @default(NOT_CHECKED)
   marketComparison           Json?
-  marketLastCheckedAt        DateTime?           @db.Timestamptz(3)
-  marketReviewRequired       Boolean             @default(false)
-  infillConfidence           Int                 @default(0)
+  marketLastCheckedAt        DateTime?                @db.Timestamptz(3)
+  marketReviewRequired       Boolean                  @default(false)
+  infillConfidence           Int                      @default(0)
+  infillAreaClassification   InfillAreaClassification @default(UNKNOWN)
   confidenceExplanation      Json
-  reviewStatus               ReviewStatus        @default(PENDING)
+  reviewStatus               ReviewStatus             @default(PENDING)
   reviewedById               String?
-  reviewedAt                 DateTime?           @db.Timestamptz(3)
+  reviewedAt                 DateTime?                @db.Timestamptz(3)
   reviewNotes                String?
   mergedIntoId               String?
-  createdAt                  DateTime            @default(now()) @db.Timestamptz(3)
-  updatedAt                  DateTime            @updatedAt @db.Timestamptz(3)
+  createdAt                  DateTime                 @default(now()) @db.Timestamptz(3)
+  updatedAt                  DateTime                 @updatedAt @db.Timestamptz(3)
 
   address        Address         @relation(fields: [addressId], references: [id], onDelete: Restrict)
   neighbourhood  Neighbourhood   @relation(fields: [neighbourhoodId], references: [id], onDelete: Restrict)
@@ -350,6 +359,13 @@ model Project {
   alertEvents    AlertEvent[]
 
   @@index([addressId, latestEventDate])
+  @@index([infillStartDate])
+  @@index([latestInfillActivityDate])
+  @@index([neighbourhoodId, latestInfillActivityDate])
+  @@index([category, latestInfillActivityDate])
+  @@index([currentStage, latestInfillActivityDate])
+  @@index([infillConfidence, latestInfillActivityDate])
+  @@index([infillAreaClassification, latestInfillActivityDate])
   @@index([neighbourhoodId, latestEventDate])
   @@index([category, latestEventDate])
   @@index([currentStage, latestEventDate])
@@ -372,6 +388,7 @@ model ProjectEvent {
 
   @@unique([projectId, permitEventId])
   @@index([projectId, eventDate])
+  @@index([eventDate(sort: Desc), id(sort: Asc)])
 }
 
 model ProjectAction {

@@ -19,7 +19,13 @@ function isEnqueued(
 }
 
 describe.skipIf(!hasTestDatabase)("durable scheduler persistence", () => {
+  const migrationJobId = "migration-00000000000005-infill-activity-dates";
   let db: PrismaClient;
+  let migrationJobState: {
+    status: RunStatus;
+    conflictKey: string | null;
+    completedAt: Date | null;
+  } | null = null;
   const previousRunAt = new Date("2100-01-01T00:00:00.000Z");
   const dueAt = new Date("2100-01-02T00:00:00.000Z");
 
@@ -35,10 +41,26 @@ describe.skipIf(!hasTestDatabase)("durable scheduler persistence", () => {
   beforeAll(async () => {
     db = await getDb();
     await removeTestRows();
+    migrationJobState = await db.jobRun.findUnique({
+      where: { id: migrationJobId },
+      select: { status: true, conflictKey: true, completedAt: true },
+    });
+    if (migrationJobState?.conflictKey) {
+      await db.jobRun.update({
+        where: { id: migrationJobId },
+        data: { status: RunStatus.SUCCEEDED, conflictKey: null, completedAt: new Date() },
+      });
+    }
   });
 
   afterAll(async () => {
     await removeTestRows();
+    if (migrationJobState) {
+      await db.jobRun.update({
+        where: { id: migrationJobId },
+        data: migrationJobState,
+      });
+    }
   });
 
   it("serializes concurrent due callers into exactly one recurring tick", async () => {

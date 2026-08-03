@@ -73,7 +73,7 @@ flowchart LR
 
 - **Web app:** Next.js App Router, React, strict TypeScript, Tailwind CSS, source-owned shadcn-style components, server-side live read models, and progressively enhanced URL filters.
 - **Database:** PostgreSQL 17 with PostGIS; Prisma 7 provides typed access through the PostgreSQL driver adapter.
-- **Domain layer:** framework-independent address normalization, permit identity, project matching, classification, confidence scoring, saved-search matching, and alert deduplication.
+- **Domain layer:** framework-independent address normalization, permit identity, project matching, classification, confidence scoring, versioned core-area geography, saved-search matching, and alert deduplication.
 - **Import layer:** provider interfaces isolate Socrata field mappings from the domain. HTTPS host allowlisting, schema/revision/count guards, bounded responses, retries, raw-first persistence, canonical checksums, and row quarantine protect the normalized store.
 - **Jobs:** Docker-compatible worker and scheduler processes use persisted job records, database-enforced conflict keys, renewable leases, crash recovery, counts, and structured logs. The scheduler checks both permit datasets daily, using the persisted last scheduled run so restarts do not trigger extra imports, then matches permits into projects and reapplies current scoring rules; manual date-range backfills use the same worker path and cannot overlap an active import.
 - **Authentication:** lowercase-normalized email accounts, bcrypt password hashes, opaque random sessions stored by token hash, secure HTTP-only cookies, role checks, same-origin checks, and login throttling.
@@ -158,7 +158,7 @@ Copy `.env.example` to `.env`. Never commit the resulting file.
 | App/auth          | `APP_URL`, `AUTH_REQUIRED`, initial administrator email/password, seed-only credentials        |
 | Database          | `DATABASE_URL`, `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD`                            |
 | Edmonton API      | `EDMONTON_SOCRATA_BASE_URL`, both dataset IDs, `SOCRATA_APP_TOKEN`, paging/retry/rate settings |
-| Classification    | `INFILL_HIGH_VALUE_THRESHOLD`                                                                  |
+| Classification    | `INFILL_HIGH_VALUE_THRESHOLD`, `INFILL_EPISODE_GAP_DAYS`                                       |
 | Map               | `MAP_TILE_URL`, optional `MAP_STYLE_URL`                                                       |
 | Email             | SMTP host, port, username, password, and sender                                                |
 | Optional services | Pushover credentials and `SENTRY_DSN`                                                          |
@@ -205,6 +205,7 @@ See [implementation status](docs/implementation-status.md) for the live checklis
 - Permit text is treated as untrusted. Ingestion validates normalized fields with Zod, React keeps UI output escaped, and raw payloads remain admin-only.
 - PostgreSQL is isolated on a private production Docker network. Expose only Caddy, and use HTTPS before access over untrusted networks.
 - The app does not treat a confidence score as fact. Every score stores structured evidence and the UI must use qualified wording.
+- Dashboard analytics use the tracker-specific **Core infill area** inside Anthony Henday between Yellowhead Trail and Whitemud Drive. The frozen polygon is derived from the City's Road Network dataset, versioned with a checksum, and is not presented as Edmonton's official city-wide definition of infill. Mapped projects outside it receive a visible scoring adjustment; missing or implausible coordinates remain unclassified instead of being guessed.
 - City datasets are provided without warranty and can change. Preserve source timestamps, raw payloads, and attribution; review the [City of Edmonton Open Data licence](https://data.edmonton.ca/stories/s/City-of-Edmonton-Open-Data-Terms-of-Use/msh8-if28/) before distribution.
 - The default MapLibre basemap uses OpenStreetMap's standard raster tile service without an API key. Keep the required attribution visible, request only tiles needed for the interactive viewport, and follow the [OpenStreetMap tile usage policy](https://operations.osmfoundation.org/policies/tiles/).
 - Map tile requests go directly from each viewer's browser to the configured provider. They contain tile coordinates and ordinary web request metadata, not permit records, project addresses, login data, or application credentials. See the [map provider policy](docs/data-sources/map-provider-policy.md) before changing providers.
@@ -214,6 +215,7 @@ See [implementation status](docs/implementation-status.md) for the live checklis
 ## Operations and contribution docs
 
 - [Mac mini deployment](docs/deployment/mac-mini.md)
+- [Core infill area policy](docs/data-sources/core-infill-area-policy.md)
 - [HTTPS with Caddy](docs/deployment/https-with-caddy.md)
 - [PostgreSQL backup and restore](docs/operations/postgres-backup.md)
 - [Repository governance and branch protection](docs/repository/governance.md)

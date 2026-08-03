@@ -17,6 +17,7 @@ describe.skipIf(!hasTestDatabase)("project detail read model", () => {
   const normalizedAddressKey = `edmonton|ab|98766 test avenue nw|${suffix}`;
   const projectKey = `project-detail:${suffix}`;
   const eventDate = new Date("2026-07-14T00:00:00.000Z");
+  const observedAt = new Date("2026-08-02T13:30:04.486Z");
   let db: PrismaClient;
   let projectId: string;
 
@@ -45,6 +46,8 @@ describe.skipIf(!hasTestDatabase)("project detail read model", () => {
         computedStage: ProjectStage.DEVELOPMENT_PERMIT,
         earliestEventDate: eventDate,
         latestEventDate: eventDate,
+        infillStartDate: eventDate,
+        latestInfillActivityDate: eventDate,
         confidenceExplanation: { summary: "Synthetic integration fixture", factors: [] },
       },
     });
@@ -59,6 +62,8 @@ describe.skipIf(!hasTestDatabase)("project detail read model", () => {
         addressId: address.id,
         neighbourhoodId: neighbourhood.id,
         rawSourcePayload: { city_file_number: "synthetic-dateless-development" },
+        importedAt: observedAt,
+        createdAt: observedAt,
       },
     });
     await db.projectEvent.create({
@@ -73,14 +78,19 @@ describe.skipIf(!hasTestDatabase)("project detail read model", () => {
     await db.neighbourhood.deleteMany({ where: { cityNeighbourhoodId } });
   });
 
-  it("uses the persisted linked event date when every source milestone date is null", async () => {
+  it("labels an undated source row with its tracker observation date", async () => {
     const detail = await getProjectDetail(db, projectId);
 
     expect(detail?.timeline).toEqual([
       expect.objectContaining({
-        milestoneType: "DEVELOPMENT_PERMIT",
-        date: "2026-07-14",
+        milestoneType: "OBSERVED",
+        stage: ProjectStage.DISCOVERED,
+        date: "2026-08-02",
       }),
     ]);
+    expect(detail).toMatchObject({
+      infillStartDate: "2026-07-14",
+      latestInfillActivityDate: "2026-07-14",
+    });
   });
 });

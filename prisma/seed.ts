@@ -6,6 +6,7 @@ import { hash, truncates } from "bcryptjs";
 import { normalizeEdmontonAddress } from "../src/domain/address-normalization";
 import {
   AlertFrequency,
+  InfillAreaClassification,
   MarketListingStatus,
   Prisma,
   PrismaClient,
@@ -386,6 +387,8 @@ async function main() {
         computedStage: ProjectStage.BUILDING_PERMIT,
         earliestEventDate: date("2025-01-17"),
         latestEventDate: date("2025-03-10"),
+        infillStartDate: date("2025-01-17"),
+        latestInfillActivityDate: date("2025-03-10"),
         estimatedUnits: 1,
         estimatedConstructionValue: "485000.00",
         marketListingStatus: MarketListingStatus.POSSIBLE_MATCH,
@@ -421,6 +424,8 @@ async function main() {
         computedStage: ProjectStage.DEVELOPMENT_PERMIT,
         earliestEventDate: date("2025-03-12"),
         latestEventDate: date("2025-04-21"),
+        infillStartDate: date("2025-03-12"),
+        latestInfillActivityDate: date("2025-04-21"),
         estimatedUnits: 2,
         estimatedConstructionValue: "760000.00",
         marketListingStatus: MarketListingStatus.NOT_CHECKED,
@@ -451,6 +456,8 @@ async function main() {
         computedStage: ProjectStage.BUILDING_PERMIT,
         earliestEventDate: date("2025-04-08"),
         latestEventDate: date("2025-05-14"),
+        infillStartDate: date("2025-04-08"),
+        latestInfillActivityDate: date("2025-05-14"),
         estimatedUnits: 1,
         estimatedConstructionValue: "215000.00",
         marketListingStatus: MarketListingStatus.NOT_CHECKED,
@@ -480,6 +487,8 @@ async function main() {
         computedStage: ProjectStage.BUILDING_PERMIT,
         earliestEventDate: date("2025-05-02"),
         latestEventDate: date("2025-05-28"),
+        infillStartDate: date("2025-05-02"),
+        latestInfillActivityDate: date("2025-05-28"),
         estimatedUnits: 0,
         estimatedConstructionValue: "65000.00",
         marketListingStatus: MarketListingStatus.NOT_CHECKED,
@@ -496,11 +505,15 @@ async function main() {
 
     for (const project of projects) {
       const { id, projectKey, ...values } = project;
+      const seededValues = {
+        ...values,
+        infillAreaClassification: InfillAreaClassification.CORE,
+      };
 
       await tx.project.upsert({
         where: { projectKey },
-        update: values,
-        create: { id, projectKey, ...values },
+        update: seededValues,
+        create: { id, projectKey, ...seededValues },
       });
     }
 

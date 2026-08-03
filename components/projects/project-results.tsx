@@ -25,8 +25,8 @@ const columns: Array<{ label: string; sort: ProjectSortField; align?: "right" }>
   { label: "Neighbourhood", sort: "neighbourhood" },
   { label: "Category", sort: "category" },
   { label: "Stage", sort: "stage" },
-  { label: "Earliest permit", sort: "earliestEventDate" },
-  { label: "Latest event", sort: "latestEventDate" },
+  { label: "Infill start", sort: "earliestEventDate" },
+  { label: "Latest infill milestone", sort: "latestEventDate" },
   { label: "Confidence", sort: "confidence", align: "right" },
   { label: "Units", sort: "units", align: "right" },
   { label: "Value", sort: "value", align: "right" },
@@ -67,15 +67,15 @@ function ProjectCard({ project }: { project: ProjectListItem }) {
         <div>
           <dt
             className="text-[var(--muted)]"
-            title="Earliest dated permit milestone grouped into this project"
+            title="First milestone used to identify this infill project"
           >
-            Earliest permit
+            Infill start
           </dt>
-          <dd className="m-0 mt-1 font-semibold">{dateLabel(project.firstDetectedDate)}</dd>
+          <dd className="m-0 mt-1 font-semibold">{dateLabel(project.infillStartDate)}</dd>
         </div>
         <div>
-          <dt className="text-[var(--muted)]">Latest event</dt>
-          <dd className="m-0 mt-1 font-semibold">{dateLabel(project.latestEventDate)}</dd>
+          <dt className="text-[var(--muted)]">Latest infill milestone</dt>
+          <dd className="m-0 mt-1 font-semibold">{dateLabel(project.latestInfillActivityDate)}</dd>
         </div>
         <div>
           <dt className="text-[var(--muted)]">Estimated units</dt>
@@ -132,7 +132,7 @@ export function ProjectResults({
                       aria-label={`Sort by ${column.label}${active ? `, currently ${filters.direction}ending` : ""}`}
                       title={
                         column.sort === "earliestEventDate"
-                          ? "Earliest dated permit milestone grouped into this project"
+                          ? "First milestone used to identify this infill project"
                           : undefined
                       }
                     >
@@ -166,16 +166,9 @@ export function ProjectResults({
                 <td className="px-4 py-4">
                   <Badge>{project.stageLabel}</Badge>
                 </td>
-                <td className="px-4 py-4 font-semibold">{dateLabel(project.firstDetectedDate)}</td>
-                <td className="px-4 py-4">
-                  <strong className="block text-[var(--ink)]">
-                    {project.latestEvent?.permitSubtype ??
-                      project.latestEvent?.permitType ??
-                      "No event"}
-                  </strong>
-                  <span className="mt-1 block text-[var(--muted)]">
-                    {dateLabel(project.latestEventDate)}
-                  </span>
+                <td className="px-4 py-4 font-semibold">{dateLabel(project.infillStartDate)}</td>
+                <td className="px-4 py-4 font-semibold">
+                  {dateLabel(project.latestInfillActivityDate)}
                 </td>
                 <td className="px-4 py-4 text-right">
                   <Badge tone={project.confidence >= 80 ? "green" : "copper"}>

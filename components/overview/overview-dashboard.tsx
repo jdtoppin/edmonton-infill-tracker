@@ -1,6 +1,5 @@
 "use client";
 
-import { useState } from "react";
 import Link from "next/link";
 import {
   AlertTriangle,
@@ -18,12 +17,11 @@ import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { EmptyState, PreviewBanner } from "@/components/workspace/data-state";
 import { PageHeading, WorkspaceTopbar } from "@/components/workspace/page-header";
-import type {
-  DashboardOverview,
-  DashboardPeriod,
-  ProjectListItem,
+import type { DashboardOverview, ProjectListItem } from "@/src/services/project-read-model";
+import {
+  DASHBOARD_PERIOD_OPTIONS,
+  formatConstructionValue,
 } from "@/src/services/project-read-model";
-import { formatConstructionValue } from "@/src/services/project-read-model";
 
 function displayDate(value: string | null, includeTime = false): string {
   if (!value) return "Not recorded";
@@ -78,6 +76,19 @@ function ProjectRows({ items, empty }: { items: ProjectListItem[]; empty: string
   );
 }
 
+function projectsHref(
+  range: DashboardOverview["range"],
+  values: Record<string, string> = {},
+): string {
+  const params = new URLSearchParams(values);
+  if (range.from) {
+    params.set("from", range.from);
+  }
+  params.set("to", range.through);
+  const query = params.toString();
+  return query ? `/projects?${query}` : "/projects";
+}
+
 export function OverviewDashboard({
   data,
   mapStyleUrl,
@@ -87,11 +98,14 @@ export function OverviewDashboard({
   mapStyleUrl?: string | null;
   mapTileUrl?: string | null;
 }) {
-  const [period, setPeriod] = useState<DashboardPeriod>(7);
-  const lifecycle = data.lifecycle[period];
+  const lifecycle = data.lifecycle;
   const maxNeighbourhood = Math.max(1, ...data.neighbourhoodBreakdown.map((item) => item.count));
   const maxCategory = Math.max(1, ...data.categoryBreakdown.map((item) => item.count));
   const latestSync = data.latestImport?.completedAt ?? data.generatedAt;
+  const periodPhrase =
+    data.range.period === "all"
+      ? "all City-dated history"
+      : `the last ${data.range.label.toLocaleLowerCase("en-CA")}`;
 
   return (
     <>
@@ -110,11 +124,11 @@ export function OverviewDashboard({
         <PageHeading
           eyebrow={`Overview · ${displayDate(data.generatedAt, true)}`}
           title="Follow infill from first permit to occupancy."
-          description="Live City-recorded permit milestones are grouped into projects and ranked by the strength of their evidence."
+          description="Core-area City permit milestones are grouped into projects and ranked by the strength of their evidence; Explore remains citywide."
           actions={
             <Link
               className="inline-flex min-h-10 items-center gap-2 rounded-lg bg-[var(--teal)] px-4 text-xs font-semibold text-white no-underline shadow-sm transition-[background-color,box-shadow] outline-none hover:bg-[var(--spruce-soft)] hover:shadow-md focus-visible:ring-2 focus-visible:ring-[var(--teal)] focus-visible:ring-offset-2"
-              href="/projects"
+              href={projectsHref(data.range)}
             >
               <Search size={15} aria-hidden="true" /> Explore projects
             </Link>
@@ -122,30 +136,35 @@ export function OverviewDashboard({
         />
 
         <div className="period-control" role="group" aria-label="Reporting period">
-          {([7, 30, 90] as const).map((value) => (
-            <button
-              key={value}
-              type="button"
-              className={period === value ? "active" : ""}
-              aria-pressed={period === value}
-              onClick={() => setPeriod(value)}
+          {DASHBOARD_PERIOD_OPTIONS.map((option) => (
+            <Link
+              key={option.value}
+              href={option.value === 7 ? "/" : `/?period=${option.value}`}
+              className={data.range.period === option.value ? "active" : ""}
+              aria-current={data.range.period === option.value ? "true" : undefined}
+              scroll={false}
             >
-              {value} days
-            </button>
+              {option.label}
+            </Link>
           ))}
         </div>
 
-        <section className="grid gap-4 lg:grid-cols-4" aria-label={`Past ${period} day summary`}>
+        <section
+          className="grid gap-4 lg:grid-cols-4"
+          aria-label={`${data.range.windowLabel} summary`}
+        >
           <Card className="p-5 lg:row-span-1">
             <div className="mb-5 grid size-10 place-items-center rounded-lg bg-[var(--teal-soft)] text-[var(--teal)]">
               <TrendingUp size={19} aria-hidden="true" />
             </div>
-            <div className="text-xs font-semibold text-[var(--muted)]">New projects detected</div>
+            <div className="text-xs font-semibold text-[var(--muted)]">Potential infill starts</div>
             <strong className="mt-2 block text-4xl tracking-[-0.04em] text-[var(--spruce)]">
-              {data.newProjects[period]}
+              {data.potentialInfillStarts}
             </strong>
             <p className="mb-0 text-xs leading-5 text-[var(--muted)]">
-              First grouped by the tracker in the past {period} days.
+              {data.range.period === "all"
+                ? "Core-area projects with a City-dated qualifying permit episode."
+                : `Core-area City permit episodes that began in ${periodPhrase}.`}
             </p>
           </Card>
           {[
@@ -177,7 +196,7 @@ export function OverviewDashboard({
                 {value}
               </strong>
               <p className="mb-0 text-xs leading-5 text-[var(--muted)]">
-                City-recorded milestones linked to tracked infill projects.
+                Core-area City permit records with this milestone in the selected period.
               </p>
             </Card>
           ))}
@@ -187,17 +206,18 @@ export function OverviewDashboard({
           areas={data.neighbourhoodBreakdown}
           mapStyleUrl={mapStyleUrl}
           mapTileUrl={mapTileUrl}
+          range={data.range}
         />
 
         <div className="mt-4 grid gap-4 xl:grid-cols-[1.2fr_0.8fr]">
           <Card className="p-5">
             <div className="section-head">
               <div>
-                <div className="eyebrow">Evidence ranked</div>
+                <div className="eyebrow">{data.range.windowLabel} · Evidence ranked</div>
                 <h2>High-confidence projects</h2>
               </div>
               <Link
-                href="/projects?minConfidence=80"
+                href={projectsHref(data.range, { minConfidence: "80" })}
                 className="inline-flex items-center gap-1 text-xs font-semibold text-[var(--teal)] no-underline"
               >
                 View all <ArrowRight size={14} />
@@ -212,7 +232,7 @@ export function OverviewDashboard({
           <Card className="p-5">
             <div className="section-head">
               <div>
-                <div className="eyebrow">All active projects</div>
+                <div className="eyebrow">{data.range.windowLabel} · Core infill area</div>
                 <h2>Neighbourhood activity</h2>
               </div>
             </div>
@@ -225,7 +245,7 @@ export function OverviewDashboard({
                 {data.neighbourhoodBreakdown.slice(0, 6).map((area) => (
                   <Link
                     key={area.id}
-                    href={`/projects?neighbourhood=${encodeURIComponent(area.cityId)}`}
+                    href={projectsHref(data.range, { neighbourhood: area.cityId })}
                     className="block text-inherit no-underline"
                   >
                     <div className="mb-1.5 flex items-center justify-between gap-3 text-xs">
@@ -249,53 +269,59 @@ export function OverviewDashboard({
           <Card className="p-5">
             <div className="section-head">
               <div>
-                <div className="eyebrow">Portfolio mix</div>
+                <div className="eyebrow">{data.range.windowLabel} · Core-area portfolio mix</div>
                 <h2>Project categories</h2>
               </div>
             </div>
-            <div className="space-y-3">
-              {data.categoryBreakdown.slice(0, 7).map((category) => (
-                <div key={category.category}>
-                  <div className="mb-1 flex justify-between gap-3 text-xs">
-                    <span>{category.label}</span>
-                    <strong>{category.count}</strong>
+            {data.categoryBreakdown.length === 0 ? (
+              <p className="my-6 text-sm text-[var(--muted)]">
+                No qualifying project activity was found in this period.
+              </p>
+            ) : (
+              <div className="space-y-3">
+                {data.categoryBreakdown.slice(0, 7).map((category) => (
+                  <div key={category.category}>
+                    <div className="mb-1 flex justify-between gap-3 text-xs">
+                      <span>{category.label}</span>
+                      <strong>{category.count}</strong>
+                    </div>
+                    <div className="h-1.5 overflow-hidden rounded-full bg-[#e9edeb]">
+                      <span
+                        className="block h-full rounded-full bg-[var(--copper)]"
+                        style={{ width: `${Math.max(4, (category.count / maxCategory) * 100)}%` }}
+                      />
+                    </div>
                   </div>
-                  <div className="h-1.5 overflow-hidden rounded-full bg-[#e9edeb]">
-                    <span
-                      className="block h-full rounded-full bg-[var(--copper)]"
-                      style={{ width: `${Math.max(4, (category.count / maxCategory) * 100)}%` }}
-                    />
-                  </div>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            )}
           </Card>
 
           <Card className="p-5">
             <div className="section-head">
               <div>
-                <div className="eyebrow">Recent signal</div>
+                <div className="eyebrow">{data.range.windowLabel}</div>
                 <h2>Demolition activity</h2>
               </div>
               <Hammer size={17} className="text-[var(--copper)]" />
             </div>
             <ProjectRows
               items={data.recentDemolitions.slice(0, 4)}
-              empty="No recent demolition signals were found."
+              empty="No demolition permit signals were found in this period."
             />
           </Card>
 
           <Card className="p-5">
             <div className="section-head">
               <div>
-                <div className="eyebrow">Recent signal</div>
+                <div className="eyebrow">{data.range.windowLabel}</div>
                 <h2>Construction activity</h2>
               </div>
               <Building2 size={17} className="text-[var(--teal)]" />
             </div>
             <ProjectRows
               items={data.recentConstruction.slice(0, 4)}
-              empty="No recent construction signals were found."
+              empty="No construction permit signals were found in this period."
             />
           </Card>
         </div>
@@ -364,8 +390,8 @@ export function OverviewDashboard({
         {data.highConfidenceProjects.length === 0 && data.categoryBreakdown.length === 0 && (
           <div className="mt-4">
             <EmptyState
-              title="No projects are available yet"
-              description="The importer can be healthy before the first permit pipeline has finished. An administrator can check imports and queue a historical backfill."
+              title="No project activity in this period"
+              description="Choose a longer reporting period to include older qualifying City permit milestones."
             />
           </div>
         )}

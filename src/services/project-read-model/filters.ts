@@ -14,6 +14,18 @@ export const PUBLIC_PROJECT_CATEGORIES = [
   ProjectCategory.UNCERTAIN_RESIDENTIAL_DEVELOPMENT,
 ] as const;
 
+/** Categories that represent a new infill episode or its demolition precursor. */
+export const POTENTIAL_INFILL_START_CATEGORIES = [
+  ProjectCategory.PROBABLE_NEW_DETACHED_INFILL,
+  ProjectCategory.PROBABLE_NEW_DETACHED_INFILL_FOR_RESALE,
+  ProjectCategory.PROBABLE_SEMI_DETACHED_INFILL,
+  ProjectCategory.PROBABLE_DUPLEX,
+  ProjectCategory.PROBABLE_ROW_HOUSING,
+  ProjectCategory.PROBABLE_GARDEN_SUITE,
+  ProjectCategory.DEMOLITION_ONLY,
+  ProjectCategory.UNCERTAIN_RESIDENTIAL_DEVELOPMENT,
+] as const;
+
 export const PROJECT_SORT_FIELDS = [
   "latestEventDate",
   "earliestEventDate",

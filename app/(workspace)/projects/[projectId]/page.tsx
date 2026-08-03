@@ -50,7 +50,6 @@ export default async function ProjectDetailPage({
     : await getProjectDetail(await getDb(), projectId);
   if (!project) notFound();
   const isAdmin = authorizedUser?.role === "ADMIN";
-  const latestEvent = project.timeline.at(-1);
   const marker: ProjectMapMarker = {
     id: project.id,
     address: project.address,
@@ -58,8 +57,7 @@ export default async function ProjectDetailPage({
     categoryLabel: project.categoryLabel,
     stageLabel: project.stageLabel,
     confidence: project.confidence,
-    latestEventLabel: latestEvent?.permitSubtype ?? latestEvent?.permitType ?? null,
-    latestEventDate: project.latestEventDate,
+    latestInfillActivityDate: project.latestInfillActivityDate,
     constructionValue:
       project.constructionValue === null
         ? null
@@ -102,9 +100,13 @@ export default async function ProjectDetailPage({
               </Badge>
             </div>
           </div>
-          <div className="grid grid-cols-3 gap-3 lg:min-w-[440px]">
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:min-w-[560px]">
             {[
-              { label: "Latest event", value: dateLabel(project.latestEventDate) },
+              { label: "Infill start", value: dateLabel(project.infillStartDate) },
+              {
+                label: "Latest infill milestone",
+                value: dateLabel(project.latestInfillActivityDate),
+              },
               { label: "Est. units", value: project.units ?? "—" },
               { label: "Est. value", value: formatConstructionValue(project.constructionValue) },
             ].map((fact) => (
