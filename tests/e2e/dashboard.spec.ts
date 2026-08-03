@@ -8,6 +8,17 @@ const transparentPng = Buffer.from(
   "base64",
 );
 
+async function stubTokenFreeBasemap(page: Page) {
+  await page.route("https://tile.openstreetmap.org/**", (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: "image/png",
+      headers: { "cache-control": "public, max-age=3600" },
+      body: transparentPng,
+    }),
+  );
+}
+
 async function signIn(page: Page, role: "admin" | "user" = "admin") {
   await page.goto("/login");
   await page
@@ -117,15 +128,10 @@ test("keeps the overview Explore projects button stationary on hover", async ({ 
   expect(await exploreLink.boundingBox()).toEqual(exploreLinkBeforeHover);
 });
 
-test("renders the token-free geographic basemap with visible attribution", async ({ page }) => {
-  await page.route("https://tile.openstreetmap.org/**", (route) =>
-    route.fulfill({
-      status: 200,
-      contentType: "image/png",
-      headers: { "cache-control": "public, max-age=3600" },
-      body: transparentPng,
-    }),
-  );
+test("renders the token-free light geographic basemap with visible attribution", async ({
+  page,
+}) => {
+  await stubTokenFreeBasemap(page);
 
   await page.goto("/?period=all");
   const overviewMap = page.locator("[data-overview-map]");
@@ -133,6 +139,50 @@ test("renders the token-free geographic basemap with visible attribution", async
   await expect(
     overviewMap.getByRole("link", { name: /OpenStreetMap contributors/i }),
   ).toBeVisible();
+});
+
+test("keeps neighbourhood count markers stable while hovered", async ({ page }) => {
+  await stubTokenFreeBasemap(page);
+  await page.goto("/?period=all");
+
+  const overviewMap = page.locator("[data-overview-map]");
+  await expect(overviewMap).toHaveAttribute("data-map-state", "ready", { timeout: 15_000 });
+  const markers = overviewMap.locator("[data-neighbourhood-marker]");
+  await expect(markers.first()).toBeVisible();
+  const marker = markers.nth((await markers.count()) > 1 ? 1 : 0);
+  const button = marker.getByRole("button");
+  const expectedName = (await button.getAttribute("aria-label"))?.split(":", 1)[0];
+  expect(expectedName).toBeTruthy();
+
+  await button.hover();
+  const samples = await marker.evaluate(async (element) => {
+    const values: Array<{
+      x: number;
+      y: number;
+      width: number;
+      height: number;
+      transform: string;
+    }> = [];
+    for (let index = 0; index < 6; index += 1) {
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+      const bounds = element.getBoundingClientRect();
+      values.push({
+        x: bounds.x,
+        y: bounds.y,
+        width: bounds.width,
+        height: bounds.height,
+        transform: getComputedStyle(element).transform,
+      });
+    }
+    return values;
+  });
+  expect(samples.every((sample) => JSON.stringify(sample) === JSON.stringify(samples[0]))).toBe(
+    true,
+  );
+  await expect(marker.locator("[data-neighbourhood-marker-label]")).toHaveCSS("opacity", "1");
+
+  await button.click();
+  await expect(overviewMap.locator("aside h3")).toHaveText(expectedName!);
 });
 
 test("@responsive filters projects and opens a normalized permit timeline", async ({ page }) => {

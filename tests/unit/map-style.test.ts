@@ -1,12 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
+  DEFAULT_MAP_RASTER_PAINT,
   DEFAULT_MAP_TILE_URL,
   EDMONTON_COORDINATE_LIMITS,
   resolveMapStyle,
 } from "../../components/maps/map-style";
 
 describe("map style configuration", () => {
-  it("builds a token-free OpenStreetMap raster style with visible attribution", () => {
+  it("builds a token-free light raster style with visible attribution", () => {
     const style = resolveMapStyle({});
 
     expect(style).toMatchObject({
@@ -18,8 +19,32 @@ describe("map style configuration", () => {
           attribution: expect.stringContaining("OpenStreetMap contributors"),
         },
       },
+      layers: [
+        {
+          id: "openstreetmap-basemap",
+          type: "raster",
+          paint: DEFAULT_MAP_RASTER_PAINT,
+        },
+      ],
+    });
+  });
+
+  it("preserves an explicit custom raster provider without altering its colours", () => {
+    const tileUrl = "https://tiles.example.test/{z}/{x}/{y}.png";
+    const style = resolveMapStyle({ mapTileUrl: tileUrl });
+
+    expect(style).toMatchObject({
+      version: 8,
+      sources: {
+        "openstreetmap-tiles": {
+          type: "raster",
+          tiles: [tileUrl],
+          attribution: expect.stringContaining("OpenStreetMap contributors"),
+        },
+      },
       layers: [{ id: "openstreetmap-basemap", type: "raster" }],
     });
+    expect(style).not.toMatchObject({ layers: [{ paint: expect.anything() }] });
   });
 
   it("lets an audited complete style override the raster tile template", () => {

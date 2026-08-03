@@ -1,7 +1,11 @@
 import { JobType, RunStatus } from "../generated/prisma/enums";
 import { getDb } from "../lib/db";
 import { log } from "../lib/logger";
-import { edmontonProviderFromEnv } from "../providers";
+import { edmontonNeighbourhoodProviderFromEnv, edmontonProviderFromEnv } from "../providers";
+import {
+  PrismaNeighbourhoodNameSyncRepository,
+  syncEdmontonNeighbourhoodNames,
+} from "../services/neighbourhood-sync";
 import { PrismaPermitImportRepository, runPermitImport } from "../services/permit-import";
 import {
   claimNextJob as claimQueuedJob,
@@ -167,6 +171,25 @@ async function processJob(job: ClaimedJob) {
     }
 
     const metadata = parsePermitImportJobMetadata(job.metadata);
+    try {
+      const neighbourhoodSync = await syncEdmontonNeighbourhoodNames({
+        provider: edmontonNeighbourhoodProviderFromEnv(),
+        repository: new PrismaNeighbourhoodNameSyncRepository(db),
+        signal: controller.signal,
+      });
+      log("info", "neighbourhood-sync.completed", {
+        jobId: job.id,
+        ...neighbourhoodSync,
+      });
+    } catch (error) {
+      if (controller.signal.aborted) throw controller.signal.reason ?? error;
+      // Permit ingestion remains available when this supplemental City dataset
+      // is temporarily unavailable. Existing authoritative names are retained.
+      log("warn", "neighbourhood-sync.failed", {
+        jobId: job.id,
+        errorName: error instanceof Error ? error.name : "UnknownError",
+      });
+    }
     const provider = edmontonProviderFromEnv({
       onRequest: (event) =>
         log(event.outcome === "failed" ? "warn" : "info", "permit-provider.request", {

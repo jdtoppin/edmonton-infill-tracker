@@ -1,6 +1,6 @@
-# Edmonton permit source contract
+# Edmonton Open Data source contract
 
-Validated against the live City of Edmonton metadata on 2026-08-01.
+Permit contracts were validated against live City metadata on 2026-08-01; the current-neighbourhood contract was validated on 2026-08-03.
 
 ## Automated sources
 
@@ -10,6 +10,14 @@ Validated against the live City of Edmonton metadata on 2026-08-01.
 | [General Building Permits](https://data.edmonton.ca/Urban-Planning-Economy/General-Building-Permits/24uj-dj8v) | `24uj-dj8v` | `row_id`           | `issue_date`  |
 
 The building-permit `permit_number` field is intentionally blank and must not be used as an identity. The published API spelling `neighbourhood_numberr` includes the trailing `r`.
+
+### Current neighbourhood names
+
+The worker also reads the City's [Current Neighbourhood Centroids](https://data.edmonton.ca/City-Administration/City-of-Edmonton-Neighbourhood-Centroids/3b6m-fezs) dataset (`3b6m-fezs`). The sync requests only `number`, `name_mixed`, `latitude`, and `longitude`, validates the complete response before writing, and persists the City's mixed-case name keyed by the stable neighbourhood `number`.
+
+Names from this dataset are marked `CITY_CURRENT_CENTROIDS`. Later permit rows may supply a name when a neighbourhood is first created, but they cannot overwrite an authoritative current name. A temporary centroid-dataset failure is logged and does not block permit ingestion; an operator shutdown or lost job lease still aborts the job normally.
+
+The centroid coordinates validate that the response belongs to Edmonton. They are not treated as neighbourhood boundaries, and the City notes that a centroid can fall outside an irregularly shaped neighbourhood.
 
 ## Snapshot semantics
 

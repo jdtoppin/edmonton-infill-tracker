@@ -45,6 +45,11 @@ enum InfillAreaClassification {
   UNKNOWN
 }
 
+enum NeighbourhoodNameSource {
+  PERMIT
+  CITY_CURRENT_CENTROIDS
+}
+
 enum ReviewStatus {
   PENDING
   CONFIRMED
@@ -156,6 +161,8 @@ model Neighbourhood {
   id                  String                                       @id @default(cuid())
   cityNeighbourhoodId String                                       @unique
   name                String
+  nameSource          NeighbourhoodNameSource                      @default(PERMIT)
+  nameSourceUpdatedAt DateTime?                                    @db.Timestamptz(3)
   boundary            Unsupported("geometry(MultiPolygon, 4326)")?
   isMonitoringActive  Boolean                                      @default(false)
   createdAt           DateTime                                     @default(now()) @db.Timestamptz(3)

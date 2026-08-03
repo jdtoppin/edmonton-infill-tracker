@@ -1,6 +1,11 @@
 import { normalizeEdmontonAddress } from "../../domain/address-normalization";
 import type { Prisma, PrismaClient } from "../../generated/prisma/client";
-import { ImportMode, RawRecordStatus, RunStatus } from "../../generated/prisma/enums";
+import {
+  ImportMode,
+  NeighbourhoodNameSource,
+  RawRecordStatus,
+  RunStatus,
+} from "../../generated/prisma/enums";
 import type { RawPermitPayload } from "../../providers";
 import type {
   PermitImportRepository,
@@ -15,6 +20,53 @@ function jsonInput(payload: RawPermitPayload) {
 
 function cleanFailureMessage(value: string): string {
   return value.replace(/[\r\n\t]+/g, " ").slice(0, 1_000);
+}
+
+interface PermitNeighbourhoodDelegate {
+  upsert(input: {
+    where: { cityNeighbourhoodId: string };
+    create: {
+      cityNeighbourhoodId: string;
+      name: string;
+      nameSource: NeighbourhoodNameSource;
+    };
+    update: Record<string, never>;
+    select: { id: true };
+  }): Promise<{ id: string }>;
+  updateMany(input: {
+    where: { id: string; nameSource: NeighbourhoodNameSource };
+    data: { name: string };
+  }): Promise<{ count: number }>;
+}
+
+/**
+ * Creates a usable name from a permit row, but only refreshes existing names
+ * that still originate from permits. The conditional update remains safe if
+ * the authoritative City sync commits between the upsert and update.
+ */
+export async function upsertPermitNeighbourhood(
+  neighbourhoods: PermitNeighbourhoodDelegate,
+  cityNeighbourhoodId: string,
+  name: string,
+): Promise<string> {
+  const neighbourhood = await neighbourhoods.upsert({
+    where: { cityNeighbourhoodId },
+    create: {
+      cityNeighbourhoodId,
+      name,
+      nameSource: NeighbourhoodNameSource.PERMIT,
+    },
+    update: {},
+    select: { id: true },
+  });
+  await neighbourhoods.updateMany({
+    where: {
+      id: neighbourhood.id,
+      nameSource: NeighbourhoodNameSource.PERMIT,
+    },
+    data: { name },
+  });
+  return neighbourhood.id;
 }
 
 export interface PrismaPermitImportFence {
@@ -192,16 +244,11 @@ export class PrismaPermitImportRepository implements PermitImportRepository {
     await this.withActiveRun(input.runId, async (transaction) => {
       let neighbourhoodId: string | null = null;
       if (input.permit.neighbourhoodCityId && input.permit.neighbourhoodName) {
-        const neighbourhood = await transaction.neighbourhood.upsert({
-          where: { cityNeighbourhoodId: input.permit.neighbourhoodCityId },
-          create: {
-            cityNeighbourhoodId: input.permit.neighbourhoodCityId,
-            name: input.permit.neighbourhoodName,
-          },
-          update: { name: input.permit.neighbourhoodName },
-          select: { id: true },
-        });
-        neighbourhoodId = neighbourhood.id;
+        neighbourhoodId = await upsertPermitNeighbourhood(
+          transaction.neighbourhood,
+          input.permit.neighbourhoodCityId,
+          input.permit.neighbourhoodName,
+        );
       }
 
       const address = await transaction.address.upsert({
