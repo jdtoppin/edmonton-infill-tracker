@@ -129,9 +129,10 @@ async function readRepositoryFile(relativePath) {
 }
 
 export async function readPinnedVersions() {
-  const [dockerfile, caddyDockerfile, postgresDockerfile] = await Promise.all([
+  const [dockerfile, caddyDockerfile, caddyGoMod, postgresDockerfile] = await Promise.all([
     readRepositoryFile("Dockerfile"),
     readRepositoryFile("deploy/caddy/Dockerfile"),
+    readRepositoryFile("deploy/caddy/go.mod"),
     readRepositoryFile("deploy/postgis/Dockerfile"),
   ]);
 
@@ -149,19 +150,19 @@ export async function readPinnedVersions() {
       "deploy/caddy/Dockerfile",
     ),
     caddy: exactlyOneMatch(
-      caddyDockerfile,
-      /^ARG CADDY_VERSION=(\d+\.\d+\.\d+)$/gm,
-      "deploy/caddy/Dockerfile",
+      caddyGoMod,
+      /^\s*(?:require\s+)?github\.com\/caddyserver\/caddy\/v2 v(\d+\.\d+\.\d+)(?: \/\/ indirect)?$/gm,
+      "deploy/caddy/go.mod",
     ),
     caddyXText: exactlyOneMatch(
-      caddyDockerfile,
-      /^ARG CADDY_X_TEXT_VERSION=(\d+\.\d+\.\d+)$/gm,
-      "deploy/caddy/Dockerfile",
+      caddyGoMod,
+      /^\s*golang\.org\/x\/text v(\d+\.\d+\.\d+)(?: \/\/ indirect)?$/gm,
+      "deploy/caddy/go.mod",
     ),
     caddyGrpc: exactlyOneMatch(
-      caddyDockerfile,
-      /^ARG CADDY_GRPC_VERSION=(\d+\.\d+\.\d+)$/gm,
-      "deploy/caddy/Dockerfile",
+      caddyGoMod,
+      /^\s*google\.golang\.org\/grpc v(\d+\.\d+\.\d+)(?: \/\/ indirect)?$/gm,
+      "deploy/caddy/go.mod",
     ),
     postgres: exactlyOneMatch(
       postgresDockerfile,
@@ -419,21 +420,6 @@ export async function applyPinnedVersions(current, latest) {
         `CADDY_GO_VERSION: \${CADDY_GO_VERSION:-${caddyGoReplacement[1]}}`,
         1,
       ],
-      [
-        `CADDY_VERSION: \${CADDY_VERSION:-${caddyReplacement[0]}}`,
-        `CADDY_VERSION: \${CADDY_VERSION:-${caddyReplacement[1]}}`,
-        1,
-      ],
-      [
-        `CADDY_X_TEXT_VERSION: \${CADDY_X_TEXT_VERSION:-${caddyXTextReplacement[0]}}`,
-        `CADDY_X_TEXT_VERSION: \${CADDY_X_TEXT_VERSION:-${caddyXTextReplacement[1]}}`,
-        1,
-      ],
-      [
-        `CADDY_GRPC_VERSION: \${CADDY_GRPC_VERSION:-${caddyGrpcReplacement[0]}}`,
-        `CADDY_GRPC_VERSION: \${CADDY_GRPC_VERSION:-${caddyGrpcReplacement[1]}}`,
-        1,
-      ],
     ]),
     updateFile("docker-compose.dev.yml", [
       [
@@ -465,15 +451,21 @@ export async function applyPinnedVersions(current, latest) {
         `ARG CADDY_GO_VERSION=${caddyGoReplacement[1]}`,
         1,
       ],
-      [`ARG CADDY_VERSION=${caddyReplacement[0]}`, `ARG CADDY_VERSION=${caddyReplacement[1]}`, 1],
+    ]),
+    updateFile("deploy/caddy/go.mod", [
       [
-        `ARG CADDY_X_TEXT_VERSION=${caddyXTextReplacement[0]}`,
-        `ARG CADDY_X_TEXT_VERSION=${caddyXTextReplacement[1]}`,
+        `github.com/caddyserver/caddy/v2 v${caddyReplacement[0]}`,
+        `github.com/caddyserver/caddy/v2 v${caddyReplacement[1]}`,
         1,
       ],
       [
-        `ARG CADDY_GRPC_VERSION=${caddyGrpcReplacement[0]}`,
-        `ARG CADDY_GRPC_VERSION=${caddyGrpcReplacement[1]}`,
+        `golang.org/x/text v${caddyXTextReplacement[0]}`,
+        `golang.org/x/text v${caddyXTextReplacement[1]}`,
+        1,
+      ],
+      [
+        `google.golang.org/grpc v${caddyGrpcReplacement[0]}`,
+        `google.golang.org/grpc v${caddyGrpcReplacement[1]}`,
         1,
       ],
     ]),
@@ -482,6 +474,7 @@ export async function applyPinnedVersions(current, latest) {
     ]),
     updateFile(".github/workflows/support-component-updates.yml", [
       [`node-version: ${current.node}`, `node-version: ${latest.node}`, 1],
+      [`go-version: ${current.caddyGo}`, `go-version: ${latest.caddyGo}`, 1],
     ]),
   ]);
 }

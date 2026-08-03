@@ -315,6 +315,23 @@ jobs:
           edmonton-infill-caddy:security-scan
           caddy validate --config /etc/caddy/Caddyfile
 
+      - name: Validate source-pinned Caddy build metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected_go=$(sed -n 's/^ARG CADDY_GO_VERSION=//p' deploy/caddy/Dockerfile)
+          expected_caddy=$(awk '$1 == "require" && $2 == "github.com/caddyserver/caddy/v2" { sub(/^v/, "", $3); print $3 }' deploy/caddy/go.mod)
+          expected_x_text=$(awk '$1 == "golang.org/x/text" { sub(/^v/, "", $2); print $2 }' deploy/caddy/go.mod)
+          expected_grpc=$(awk '$1 == "google.golang.org/grpc" { sub(/^v/, "", $2); print $2 }' deploy/caddy/go.mod)
+          for version in "$expected_go" "$expected_caddy" "$expected_x_text" "$expected_grpc"; do
+            printf '%s\n' "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'
+          done
+          build_info=$(docker run --rm edmonton-infill-caddy:security-scan caddy build-info)
+          printf '%s\n' "$build_info" | grep -Fqx $'go\tgo'"$expected_go"
+          printf '%s\n' "$build_info" | grep -Fq $'dep\tgithub.com/caddyserver/caddy/v2\tv'"$expected_caddy"$'\t'
+          printf '%s\n' "$build_info" | grep -Fq $'dep\tgolang.org/x/text\tv'"$expected_x_text"$'\t'
+          printf '%s\n' "$build_info" | grep -Fq $'dep\tgoogle.golang.org/grpc\tv'"$expected_grpc"$'\t'
+
       - name: Validate PostGIS runtime image
         shell: bash
         run: |

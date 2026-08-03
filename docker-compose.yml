@@ -137,9 +137,6 @@ services:
       dockerfile: Dockerfile
       args:
         CADDY_GO_VERSION: ${CADDY_GO_VERSION:-1.26.5}
-        CADDY_VERSION: ${CADDY_VERSION:-2.11.4}
-        CADDY_X_TEXT_VERSION: ${CADDY_X_TEXT_VERSION:-0.40.0}
-        CADDY_GRPC_VERSION: ${CADDY_GRPC_VERSION:-1.83.0}
     environment:
       SITE_ADDRESS: ${SITE_ADDRESS:-:80}
       UPSTREAM_FORWARDED_PROTO: ${UPSTREAM_FORWARDED_PROTO:-http}

@@ -155,6 +155,8 @@ describe("support-component update policy", () => {
       compose,
       developmentCompose,
       caddyDockerfile,
+      caddyGoMod,
+      caddyGoSum,
       caddyMain,
       postgresDockerfile,
       ci,
@@ -164,6 +166,8 @@ describe("support-component update policy", () => {
       readFile(new URL("../../docker-compose.yml", import.meta.url), "utf8"),
       readFile(new URL("../../docker-compose.dev.yml", import.meta.url), "utf8"),
       readFile(new URL("../../deploy/caddy/Dockerfile", import.meta.url), "utf8"),
+      readFile(new URL("../../deploy/caddy/go.mod", import.meta.url), "utf8"),
+      readFile(new URL("../../deploy/caddy/go.sum", import.meta.url), "utf8"),
       readFile(new URL("../../deploy/caddy/main.go", import.meta.url), "utf8"),
       readFile(new URL("../../deploy/postgis/Dockerfile", import.meta.url), "utf8"),
       readFile(new URL("../../.github/workflows/ci.yml", import.meta.url), "utf8"),
@@ -180,12 +184,14 @@ describe("support-component update policy", () => {
     )?.[1];
     const postgresVersion = postgresDockerfile.match(/^FROM postgres:(\d+\.\d+)-bookworm$/m)?.[1];
     const caddyGoVersion = caddyDockerfile.match(/^ARG CADDY_GO_VERSION=(\d+\.\d+\.\d+)$/m)?.[1];
-    const caddyVersion = caddyDockerfile.match(/^ARG CADDY_VERSION=(\d+\.\d+\.\d+)$/m)?.[1];
-    const caddyXTextVersion = caddyDockerfile.match(
-      /^ARG CADDY_X_TEXT_VERSION=(\d+\.\d+\.\d+)$/m,
+    const caddyVersion = caddyGoMod.match(
+      /^\s*(?:require\s+)?github\.com\/caddyserver\/caddy\/v2 v(\d+\.\d+\.\d+)(?: \/\/ indirect)?$/m,
     )?.[1];
-    const caddyGrpcVersion = caddyDockerfile.match(
-      /^ARG CADDY_GRPC_VERSION=(\d+\.\d+\.\d+)$/m,
+    const caddyXTextVersion = caddyGoMod.match(
+      /^\s*golang\.org\/x\/text v(\d+\.\d+\.\d+)(?: \/\/ indirect)?$/m,
+    )?.[1];
+    const caddyGrpcVersion = caddyGoMod.match(
+      /^\s*google\.golang\.org\/grpc v(\d+\.\d+\.\d+)(?: \/\/ indirect)?$/m,
     )?.[1];
 
     expect(nodeVersion).toBeTruthy();
@@ -213,17 +219,19 @@ describe("support-component update policy", () => {
     expect(ci).toContain("expected_npm_brace_expansion");
     expect(ci).toContain("actual_npm_brace_expansion");
     expect(compose).toContain(`CADDY_GO_VERSION:-${caddyGoVersion}`);
-    expect(compose).toContain(`CADDY_VERSION:-${caddyVersion}`);
-    expect(compose).toContain(`CADDY_X_TEXT_VERSION:-${caddyXTextVersion}`);
-    expect(compose).toContain(`CADDY_GRPC_VERSION:-${caddyGrpcVersion}`);
     expect(caddyDockerfile).toContain(`golang:\${CADDY_GO_VERSION}-alpine3.24`);
-    expect(caddyDockerfile).toContain(`github.com/caddyserver/caddy/v2@v\${CADDY_VERSION}`);
-    expect(caddyDockerfile).toContain(`golang.org/x/text@v\${CADDY_X_TEXT_VERSION}`);
-    expect(caddyDockerfile).toContain(`google.golang.org/grpc@v\${CADDY_GRPC_VERSION}`);
+    expect(caddyGoMod).toContain(`github.com/caddyserver/caddy/v2 v${caddyVersion}`);
+    expect(caddyGoMod).toContain(`golang.org/x/text v${caddyXTextVersion}`);
+    expect(caddyGoMod).toContain(`google.golang.org/grpc v${caddyGrpcVersion}`);
+    expect(caddyGoSum.split("\n").length).toBeGreaterThan(500);
+    expect(caddyDockerfile).toContain("COPY go.mod go.sum main.go ./");
+    expect(caddyDockerfile).toContain("go mod verify");
+    expect(caddyDockerfile).toContain("-mod=readonly");
     expect(caddyMain).toContain('caddycmd "github.com/caddyserver/caddy/v2/cmd"');
     expect(ci).toContain("docker build");
     expect(ci).toContain("deploy/caddy");
-    expect(ci.split("edmonton-infill-caddy:security-scan").length - 1).toBe(3);
+    expect(ci.split("edmonton-infill-caddy:security-scan").length - 1).toBe(4);
+    expect(ci).toContain("caddy build-info");
   });
 
   it("opens support PRs only after the full CI run succeeds", async () => {
@@ -258,7 +266,14 @@ describe("support-component update policy", () => {
     expect(ci).toContain("Container security");
     expect(ci).toContain("aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25");
     expect(workflow).toContain("deploy/caddy/Dockerfile");
-    expect(dependabot.match(/version-update:semver-major/g)).toHaveLength(2);
+    expect(workflow).toContain("deploy/caddy/go.mod");
+    expect(workflow).toContain("deploy/caddy/go.sum");
+    expect(workflow).toContain("go mod tidy");
+    expect(workflow).toContain("go mod verify");
+    expect(workflow).toContain("actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16");
+    expect(dependabot.match(/version-update:semver-major/g)).toHaveLength(3);
+    expect(dependabot).toContain("package-ecosystem: gomod");
+    expect(dependabot).toContain("directory: /deploy/caddy");
   });
 
   it("keeps PostGIS scanner exceptions path-scoped, explicit, and expiring", async () => {

@@ -143,15 +143,17 @@ security-patched Go dependencies, and PostgreSQL pins are checked weekly by the 
 updates` workflow. It considers stable same-major releases only, updates every coordinated
 deployment pin together, audits the npm lockfile, pushes an isolated `codex/` proposal branch, and
 dispatches the complete CI workflow. A pull request is opened only after that run passes; it is never
-merged or deployed automatically. npm package minor/patch updates and GitHub Actions are proposed
-separately by Dependabot, while major releases remain deliberate review work.
+merged or deployed automatically. npm package minor/patch updates, GitHub Actions, and Caddy's
+remaining transitive Go dependencies are proposed separately by Dependabot, while major releases
+remain deliberate review work.
 
 The regular CI workflow also runs weekly even when source code has not changed. It fails on high or
 critical npm advisories and on fixed high or critical vulnerabilities found in the built application,
 custom PostGIS, or source-pinned Caddy images. The Caddy image is rebuilt from the tagged standard
 module set with reviewed Go dependency overrides instead of inheriting a stale release binary. Its
-minimal runtime receives current Alpine security packages at build time. The scanner action is
-commit-pinned and does not receive a
+complete module graph and checksums are committed; the build verifies that graph and compiles in
+read-only module mode. Its minimal runtime receives current Alpine security packages at build time.
+The scanner action is commit-pinned and does not receive a
 third-party credential. GitHub Actions must be permitted to create pull requests for the proposal
 step; if repository policy disables that permission, the workflow leaves its tested proposal branch
 and fails visibly instead of bypassing the policy.

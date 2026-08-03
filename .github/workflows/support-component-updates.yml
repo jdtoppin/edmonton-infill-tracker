@@ -33,6 +33,12 @@ jobs:
           node-version: 22.23.2
           cache: npm
 
+      - name: Set up Go
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version: 1.26.5
+          cache-dependency-path: deploy/caddy/go.sum
+
       - name: Check for an existing support-component proposal
         id: pending
         shell: bash
@@ -58,13 +64,20 @@ jobs:
         id: updates
         run: node scripts/support-component-updates.mjs --apply
 
+      - name: Refresh and verify Caddy module checksums
+        if: steps.updates.outputs.changed == 'true'
+        working-directory: deploy/caddy
+        run: |
+          go mod tidy
+          go mod verify
+
       - name: Verify the proposed file scope
         if: steps.updates.outputs.changed == 'true'
         shell: bash
         run: |
           set -euo pipefail
           git diff --check
-          unexpected_files=$(git diff --name-only --diff-filter=ACMRTUXB | grep -Ev '^(Dockerfile|docker-compose\.yml|docker-compose\.dev\.yml|deploy/caddy/Dockerfile|deploy/postgis/Dockerfile|\.github/workflows/ci\.yml|\.github/workflows/support-component-updates\.yml)$' || true)
+          unexpected_files=$(git diff --name-only --diff-filter=ACMRTUXB | grep -Ev '^(Dockerfile|docker-compose\.yml|docker-compose\.dev\.yml|deploy/caddy/(Dockerfile|go\.mod|go\.sum)|deploy/postgis/Dockerfile|\.github/workflows/ci\.yml|\.github/workflows/support-component-updates\.yml)$' || true)
           if [ -n "$unexpected_files" ]; then
             printf 'The updater changed files outside its allowlist:\n%s\n' "$unexpected_files" >&2
             exit 1
@@ -96,6 +109,8 @@ jobs:
             docker-compose.yml \
             docker-compose.dev.yml \
             deploy/caddy/Dockerfile \
+            deploy/caddy/go.mod \
+            deploy/caddy/go.sum \
             deploy/postgis/Dockerfile \
             .github/workflows/ci.yml \
             .github/workflows/support-component-updates.yml
