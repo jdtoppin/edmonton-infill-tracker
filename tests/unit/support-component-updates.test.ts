@@ -35,6 +35,18 @@ describe("support-component update policy", () => {
     ).toBe("17.10");
   });
 
+  it("keeps automated Go updates on the pinned toolchain release line", () => {
+    expect(
+      selectLatestIncrementalVersion({
+        current: "1.26.5",
+        tags: ["1.26.6-alpine3.24", "1.27.1-alpine3.24", "1.26.7-rc.1-alpine3.24"],
+        suffix: "alpine3.24",
+        versionParts: 3,
+        compatibilityParts: 2,
+      }),
+    ).toBe("1.26.6");
+  });
+
   it("accepts only a newer stable npm release on the pinned major", () => {
     expect(
       selectLatestSameMajorVersion({
@@ -220,6 +232,7 @@ describe("support-component update policy", () => {
     expect(ci).toContain("actual_npm_brace_expansion");
     expect(compose).toContain(`CADDY_GO_VERSION:-${caddyGoVersion}`);
     expect(caddyDockerfile).toContain(`golang:\${CADDY_GO_VERSION}-alpine3.24`);
+    expect(caddyDockerfile).toContain("GOTOOLCHAIN=local");
     expect(caddyGoMod).toContain(`github.com/caddyserver/caddy/v2 v${caddyVersion}`);
     expect(caddyGoMod).toContain(`golang.org/x/text v${caddyXTextVersion}`);
     expect(caddyGoMod).toContain(`google.golang.org/grpc v${caddyGrpcVersion}`);

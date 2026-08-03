@@ -140,7 +140,8 @@ There is intentionally no GitHub-to-Mac automatic deployment in the MVP.
 
 Node.js, npm, npm's bundled `brace-expansion` security override, Caddy, Caddy's Go toolchain and
 security-patched Go dependencies, and PostgreSQL pins are checked weekly by the `Support component
-updates` workflow. It considers stable same-major releases only, updates every coordinated
+updates` workflow. It considers stable same-major releases, while keeping Go toolchain updates to
+patches within the current Go release line. It updates every coordinated
 deployment pin together, audits the npm lockfile, pushes an isolated `codex/` proposal branch, and
 dispatches the complete CI workflow. A pull request is opened only after that run passes; it is never
 merged or deployed automatically. npm package minor/patch updates, GitHub Actions, and Caddy's

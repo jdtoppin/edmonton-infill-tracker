@@ -5,6 +5,7 @@ ARG CADDY_GO_VERSION=1.26.5
 FROM golang:${CADDY_GO_VERSION}-alpine3.24 AS builder
 
 ENV CGO_ENABLED=0 \
+    GOTOOLCHAIN=local \
     GOSUMDB=sum.golang.org
 
 WORKDIR /src

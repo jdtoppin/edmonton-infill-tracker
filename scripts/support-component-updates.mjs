@@ -33,6 +33,7 @@ const componentDefinitions = {
     repository: "golang",
     suffix: "alpine3.24",
     versionParts: 3,
+    compatibilityParts: 2,
   },
   caddy: {
     label: "Caddy",
@@ -78,7 +79,13 @@ function compareVersions(left, right) {
   return 0;
 }
 
-export function selectLatestIncrementalVersion({ current, tags, suffix, versionParts }) {
+export function selectLatestIncrementalVersion({
+  current,
+  tags,
+  suffix,
+  versionParts,
+  compatibilityParts = 1,
+}) {
   const currentParts = parseVersion(current, versionParts);
   if (!currentParts) throw new Error(`Invalid pinned version: ${current}`);
 
@@ -87,7 +94,11 @@ export function selectLatestIncrementalVersion({ current, tags, suffix, versionP
     .map((tag) => tagPattern.exec(tag)?.[1] ?? null)
     .filter((version) => version !== null)
     .map((version) => ({ version, parts: parseVersion(version, versionParts) }))
-    .filter((candidate) => candidate.parts?.[0] === currentParts[0])
+    .filter((candidate) =>
+      currentParts
+        .slice(0, compatibilityParts)
+        .every((part, index) => candidate.parts?.[index] === part),
+    )
     .sort((left, right) => compareVersions(right.parts, left.parts));
 
   const newest = candidates[0];
@@ -354,6 +365,7 @@ export async function discoverIncrementalUpdates(currentVersions, fetchImpl = fe
                   tags: await fetchDockerTags(definition.repository, currentParts[0], fetchImpl),
                   suffix: definition.suffix,
                   versionParts: definition.versionParts,
+                  compatibilityParts: definition.compatibilityParts,
                 });
       return [key, { ...definition, current, latest }];
     }),
