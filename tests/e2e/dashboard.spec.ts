@@ -69,6 +69,7 @@ test("@responsive shows the live permit intelligence overview", async ({ page })
   await expect(overviewMap).not.toHaveAttribute("data-map-state", "loading");
   if ((await overviewMap.getAttribute("data-map-state")) === "ready") {
     const summaryVisuals = overviewMap.locator("[data-neighbourhood-marker-visual]");
+    const summaryWrappers = overviewMap.locator("[data-neighbourhood-marker]");
     const summaryCount = await summaryVisuals.count();
     if (summaryCount > 0) {
       const countBubbles = overviewMap.locator("[data-neighbourhood-marker] button");
@@ -77,6 +78,8 @@ test("@responsive shows the live permit intelligence overview", async ({ page })
       await expect(overviewMapRegion).toHaveAttribute("data-map-detail", "projects");
       await expect(summaryVisuals.first()).toHaveCSS("opacity", "0");
       await expect(summaryVisuals.first()).toHaveAttribute("aria-hidden", "true");
+      await expect(summaryWrappers.first()).toHaveCSS("pointer-events", "none");
+      await expect(countBubbles.first()).toHaveAttribute("tabindex", "-1");
     }
   }
   const exploreLink = page.getByRole("main").getByRole("link", { name: "Explore projects" });

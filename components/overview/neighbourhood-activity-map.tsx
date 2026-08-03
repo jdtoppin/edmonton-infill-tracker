@@ -340,7 +340,12 @@ export function NeighbourhoodActivityMap({
                 "aria-label",
                 `${area.name}: ${area.count} ${area.count === 1 ? "project" : "projects"} with qualifying activity in ${periodPhrase}; select to zoom to individual project locations`,
               );
-              markerButton.addEventListener("click", () => selectArea(area.id, true));
+              markerButton.addEventListener("click", (event) => {
+                selectArea(area.id, true);
+                if (event.detail === 0) {
+                  mapContainer.focus({ preventScroll: true });
+                }
+              });
 
               const markerLabel = document.createElement("span");
               markerLabel.className =
@@ -371,6 +376,7 @@ export function NeighbourhoodActivityMap({
             }
 
             loaded = true;
+            handleZoom();
             setMapState("ready");
             const labelsRequest = loadCurrentEdmontonNeighbourhoods();
             void labelsRequest
@@ -401,6 +407,8 @@ export function NeighbourhoodActivityMap({
             visual.style.opacity = showingProjects ? "0" : "1";
             visual.style.pointerEvents = showingProjects ? "none" : "auto";
             visual.setAttribute("aria-hidden", String(showingProjects));
+            const wrapper = markerWrappers.get(areaId);
+            if (wrapper) wrapper.style.pointerEvents = showingProjects ? "none" : "auto";
             const button = markerElements.get(areaId);
             if (button) button.tabIndex = showingProjects ? -1 : 0;
           }
@@ -520,6 +528,7 @@ export function NeighbourhoodActivityMap({
               ref={mapContainerRef}
               className="h-full w-full"
               role="region"
+              tabIndex={-1}
               aria-label="Geographic map of project counts by Edmonton neighbourhood"
               aria-busy={mapState === "loading"}
             />
