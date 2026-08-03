@@ -7,11 +7,20 @@ import {
   defaultProjectFilters,
   listProjects,
   parseProjectFilters,
+  POTENTIAL_INFILL_START_CATEGORIES,
   projectFiltersToSearchParams,
   safeParseProjectFilters,
 } from "../../src/services/project-read-model";
 
 describe("project URL filters", () => {
+  it("keeps renovation-only work out of potential infill starts", () => {
+    expect(POTENTIAL_INFILL_START_CATEGORIES).not.toContain(ProjectCategory.RENOVATION_OR_ADDITION);
+    expect(POTENTIAL_INFILL_START_CATEGORIES).toContain(ProjectCategory.DEMOLITION_ONLY);
+    expect(POTENTIAL_INFILL_START_CATEGORIES).toContain(
+      ProjectCategory.UNCERTAIN_RESIDENTIAL_DEVELOPMENT,
+    );
+  });
+
   it("provides bounded, deterministic defaults", () => {
     expect(defaultProjectFilters()).toEqual({
       view: "split",

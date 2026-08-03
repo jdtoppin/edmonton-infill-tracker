@@ -380,6 +380,7 @@ model ProjectEvent {
 
   @@unique([projectId, permitEventId])
   @@index([projectId, eventDate])
+  @@index([eventDate(sort: Desc), id(sort: Asc)])
 }
 
 model ProjectAction {

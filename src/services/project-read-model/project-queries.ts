@@ -13,11 +13,12 @@ import {
   INFILL_EVENT_ROLE,
   type InfillEventAssessment,
 } from "../../domain/infill-classification";
-import { configuredInfillScoringConfig } from "../../domain/infill-scoring-config";
 import { buildProjectMilestones } from "../../domain/project-timeline";
+import { dashboardRange, type DashboardPeriod, type DashboardRange } from "./dashboard-periods";
 import {
   civilDateStart,
   defaultProjectFilters,
+  POTENTIAL_INFILL_START_CATEGORIES,
   PUBLIC_PROJECT_CATEGORIES,
   type ProjectFilters,
 } from "./filters";
@@ -81,7 +82,6 @@ type ProjectListRecord = Prisma.ProjectGetPayload<{ select: typeof projectListSe
 
 const projectActivitySelect = {
   id: true,
-  eventDate: true,
   permitEvent: {
     select: {
       sourceDataset: true,
@@ -277,16 +277,14 @@ export type ProjectDetail = {
   timeline: ProjectTimelineEntry[];
 };
 
-export type DashboardPeriod = 7 | 30 | 90;
 export type LifecycleCounts = { development: number; building: number; occupancy: number };
 
 export type DashboardOverview = {
   dataMode: ReadModelDataMode;
   generatedAt: string;
-  activeSince: string;
-  activeThrough: string;
-  newProjects: Record<DashboardPeriod, number>;
-  lifecycle: Record<DashboardPeriod, LifecycleCounts>;
+  range: DashboardRange;
+  potentialInfillStarts: number;
+  lifecycle: LifecycleCounts;
   categoryBreakdown: Array<{ category: ProjectCategory; label: string; count: number }>;
   neighbourhoodBreakdown: Array<{
     id: string;
@@ -655,60 +653,63 @@ export async function getProjectDetail(
   return record ? serializeProjectDetail(record, "live") : null;
 }
 
-function edmontonCivilDate(now: Date, daysBefore = 0): Date {
-  const parts = new Intl.DateTimeFormat("en-CA", {
-    timeZone: "America/Edmonton",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).formatToParts(now);
-  const value = Object.fromEntries(parts.map(({ type, value: part }) => [type, part]));
-  return new Date(
-    Date.UTC(Number(value.year), Number(value.month) - 1, Number(value.day) - daysBefore),
-  );
-}
-
 async function lifecycleCounts(
   db: PrismaClient,
-  since: Date,
+  since: Date | null,
   through: Date,
 ): Promise<LifecycleCounts> {
+  const dateRange: Prisma.DateTimeFilter = { ...(since ? { gte: since } : {}), lte: through };
   const linkedToPublicProject = { project: publicBaseWhere };
-  const candidates = await db.permitEvent.findMany({
-    where: {
-      projectEvent: linkedToPublicProject,
-      OR: [
-        { issueDate: { gte: since, lte: through } },
-        { occupancyGrantedDate: { gte: since, lte: through } },
-      ],
-    },
-    select: {
-      sourceDataset: true,
-      permitType: true,
-      permitSubtype: true,
-      status: true,
-      workDescription: true,
-      buildingType: true,
-      unitsAdded: true,
-      applicationDate: true,
-      issueDate: true,
-      occupancyGrantedDate: true,
-    },
-  });
-  const relevant = candidates.filter((event) => {
-    const role = assessInfillPermitEvent(event).role;
-    return role !== INFILL_EVENT_ROLE.propertyOnly && role !== INFILL_EVENT_ROLE.excluded;
-  });
-  const inRange = (date: Date | null) => Boolean(date && date >= since && date <= through);
-  const development = relevant.filter(
-    (event) => event.sourceDataset === "development" && inRange(event.issueDate),
-  ).length;
-  const building = relevant.filter(
-    (event) => event.sourceDataset === "building" && inRange(event.issueDate),
-  ).length;
-  const occupancy = relevant.filter(
-    (event) => event.sourceDataset === "building" && inRange(event.occupancyGrantedDate),
-  ).length;
+  const inRange = (date: Date | null) =>
+    Boolean(date && (!since || date >= since) && date <= through);
+  const counts: LifecycleCounts = { development: 0, building: 0, occupancy: 0 };
+  const pageSize = 1_000;
+  let cursor: string | undefined;
+
+  while (true) {
+    const candidates = await db.permitEvent.findMany({
+      where: {
+        projectEvent: linkedToPublicProject,
+        OR: [{ issueDate: dateRange }, { occupancyGrantedDate: dateRange }],
+      },
+      select: {
+        id: true,
+        sourceDataset: true,
+        permitType: true,
+        permitSubtype: true,
+        status: true,
+        workDescription: true,
+        buildingType: true,
+        unitsAdded: true,
+        applicationDate: true,
+        issueDate: true,
+        occupancyGrantedDate: true,
+      },
+      orderBy: { id: "asc" },
+      ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+      take: pageSize,
+    });
+
+    for (const event of candidates) {
+      const role = assessInfillPermitEvent(event).role;
+      if (role === INFILL_EVENT_ROLE.propertyOnly || role === INFILL_EVENT_ROLE.excluded) continue;
+      if (event.sourceDataset === "development" && inRange(event.issueDate)) {
+        counts.development += 1;
+      }
+      if (event.sourceDataset === "building" && inRange(event.issueDate)) {
+        counts.building += 1;
+      }
+      if (event.sourceDataset === "building" && inRange(event.occupancyGrantedDate)) {
+        counts.occupancy += 1;
+      }
+    }
+
+    if (candidates.length < pageSize) break;
+    cursor = candidates.at(-1)?.id;
+    if (!cursor) break;
+  }
+
+  const { development, building, occupancy } = counts;
   return { development, building, occupancy };
 }
 
@@ -718,7 +719,7 @@ async function recentProjectsForPermitText(
   limit: number,
   accepts: (assessment: InfillEventAssessment) => boolean,
   projectWhere: Prisma.ProjectWhereInput = publicBaseWhere,
-  eventDateRange?: Prisma.DateTimeFilter,
+  civicDateRange?: Prisma.DateTimeFilter,
 ): Promise<ProjectListItem[]> {
   const seenProjects = new Set<string>();
   const projects: ProjectListItem[] = [];
@@ -729,16 +730,31 @@ async function recentProjectsForPermitText(
     const records = await db.projectEvent.findMany({
       where: {
         project: projectWhere,
-        ...(eventDateRange ? { eventDate: eventDateRange } : {}),
         permitEvent: {
-          OR: terms.flatMap((term) => [
-            { permitType: { contains: term, mode: "insensitive" as const } },
-            { permitSubtype: { contains: term, mode: "insensitive" as const } },
-            { workDescription: { contains: term, mode: "insensitive" as const } },
-          ]),
+          AND: [
+            {
+              OR: terms.flatMap((term) => [
+                { permitType: { contains: term, mode: "insensitive" as const } },
+                { permitSubtype: { contains: term, mode: "insensitive" as const } },
+                { workDescription: { contains: term, mode: "insensitive" as const } },
+              ]),
+            },
+            ...(civicDateRange
+              ? [
+                  {
+                    OR: [
+                      { issueDate: civicDateRange },
+                      { issueDate: null, applicationDate: civicDateRange },
+                    ],
+                  },
+                ]
+              : []),
+          ],
         },
       },
       select: projectActivitySelect,
+      // Reclassification maintains eventDate as issueDate -> applicationDate. The civic-date
+      // predicate above excludes observation fallbacks, so this remains both truthful and bounded.
       orderBy: [{ eventDate: "desc" }, { id: "asc" }],
       ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
       take: pageSize,
@@ -746,12 +762,14 @@ async function recentProjectsForPermitText(
 
     for (const record of records) {
       if (!accepts(assessInfillPermitEvent(record.permitEvent))) continue;
+      const civicDate = record.permitEvent.issueDate ?? record.permitEvent.applicationDate;
+      if (!civicDate) continue;
       if (seenProjects.has(record.project.id)) continue;
       seenProjects.add(record.project.id);
       projects.push({
         ...serializeProjectListRecord(record.project),
         latestEvent: {
-          date: serializeDate(record.eventDate)!,
+          date: serializeDate(civicDate)!,
           permitType: record.permitEvent.permitType,
           permitSubtype: record.permitEvent.permitSubtype,
           status: record.permitEvent.status,
@@ -771,17 +789,21 @@ async function recentProjectsForPermitText(
 export async function getDashboardOverview(
   db: PrismaClient,
   now = new Date(),
+  period: DashboardPeriod = 7,
 ): Promise<DashboardOverview> {
-  const periods = [7, 30, 90] as const;
-  const today = edmontonCivilDate(now);
-  const activeSince = edmontonCivilDate(now, configuredInfillScoringConfig().maxEpisodeGapDays);
-  const activeProjectWhere: Prisma.ProjectWhereInput = {
-    AND: [publicBaseWhere, { latestInfillActivityDate: { gte: activeSince, lte: today } }],
+  const range = dashboardRange(period, now);
+  const activeSince = range.from ? civilDateStart(range.from) : null;
+  const activeThrough = civilDateStart(range.through);
+  const activityDateRange: Prisma.DateTimeFilter = {
+    ...(activeSince ? { gte: activeSince } : {}),
+    lte: activeThrough,
   };
-  const activeEventDateRange: Prisma.DateTimeFilter = { gte: activeSince, lte: today };
+  const activeProjectWhere: Prisma.ProjectWhereInput = {
+    AND: [publicBaseWhere, { latestInfillActivityDate: activityDateRange }],
+  };
   const [
-    newProjectValues,
-    lifecycleValues,
+    potentialInfillStarts,
+    lifecycle,
     categoryGroups,
     neighbourhoodGroups,
     highConfidenceRecords,
@@ -792,23 +814,15 @@ export async function getDashboardOverview(
     unassignedPermits,
     missingCoordinates,
   ] = await Promise.all([
-    Promise.all(
-      periods.map((period) =>
-        db.project.count({
-          where: {
-            ...publicBaseWhere,
-            infillStartDate: {
-              gte: edmontonCivilDate(now, period - 1),
-              lte: today,
-            },
-          },
-        }),
-      ),
-    ),
-    Promise.all(
-      periods.map((period) => lifecycleCounts(db, edmontonCivilDate(now, period - 1), today)),
-    ),
-    db.project.groupBy({ by: ["category"], where: publicBaseWhere, _count: { _all: true } }),
+    db.project.count({
+      where: {
+        ...publicBaseWhere,
+        category: { in: [...POTENTIAL_INFILL_START_CATEGORIES] },
+        infillStartDate: activityDateRange,
+      },
+    }),
+    lifecycleCounts(db, activeSince, activeThrough),
+    db.project.groupBy({ by: ["category"], where: activeProjectWhere, _count: { _all: true } }),
     db.project.groupBy({
       by: ["neighbourhoodId"],
       where: activeProjectWhere,
@@ -830,32 +844,15 @@ export async function getDashboardOverview(
       5,
       (assessment) => assessment.demolition,
       activeProjectWhere,
-      activeEventDateRange,
+      activityDateRange,
     ),
     recentProjectsForPermitText(
       db,
       ["new construction", "new dwelling", "construct", "erect", "building"],
       5,
       (assessment) => assessment.newResidentialConstruction,
-      {
-        AND: [
-          activeProjectWhere,
-          {
-            category: {
-              in: [
-                ProjectCategory.PROBABLE_NEW_DETACHED_INFILL,
-                ProjectCategory.PROBABLE_NEW_DETACHED_INFILL_FOR_RESALE,
-                ProjectCategory.PROBABLE_SEMI_DETACHED_INFILL,
-                ProjectCategory.PROBABLE_DUPLEX,
-                ProjectCategory.PROBABLE_ROW_HOUSING,
-                ProjectCategory.PROBABLE_GARDEN_SUITE,
-              ],
-              not: ProjectCategory.NOT_RELEVANT,
-            },
-          },
-        ],
-      },
-      activeEventDateRange,
+      activeProjectWhere,
+      activityDateRange,
     ),
     db.importRun.findFirst({
       orderBy: [{ createdAt: "desc" }, { id: "desc" }],
@@ -976,10 +973,9 @@ export async function getDashboardOverview(
   return {
     dataMode: "live",
     generatedAt: now.toISOString(),
-    activeSince: serializeDate(activeSince)!,
-    activeThrough: serializeDate(today)!,
-    newProjects: { 7: newProjectValues[0], 30: newProjectValues[1], 90: newProjectValues[2] },
-    lifecycle: { 7: lifecycleValues[0], 30: lifecycleValues[1], 90: lifecycleValues[2] },
+    range,
+    potentialInfillStarts,
+    lifecycle,
     categoryBreakdown: categoryGroups
       .map((item) => ({
         category: item.category,
@@ -1382,35 +1378,55 @@ export function getPreviewFilterOptions(now = new Date()): ProjectFilterOptions 
   };
 }
 
-export function getPreviewDashboardOverview(now = new Date()): DashboardOverview {
+export function getPreviewDashboardOverview(
+  now = new Date(),
+  period: DashboardPeriod = 7,
+): DashboardOverview {
   const items = previewProjects(now);
-  const countWithin = (days: DashboardPeriod) =>
-    items.filter(
-      (item) =>
-        item.infillStartDate !== null &&
-        item.infillStartDate >=
-          new Date(now.getTime() - (days - 1) * dayMilliseconds).toISOString().slice(0, 10),
-    ).length;
-  const neighbourhoods = getPreviewFilterOptions(now).neighbourhoods;
+  const range = dashboardRange(period, now);
+  const inRange = (value: string | null) =>
+    Boolean(value && (!range.from || value >= range.from) && value <= range.through);
+  const activeItems = items.filter((item) => inRange(item.latestInfillActivityDate));
+  const potentialInfillStarts = activeItems.filter(
+    (item) =>
+      item.infillStartDate !== null &&
+      inRange(item.infillStartDate) &&
+      POTENTIAL_INFILL_START_CATEGORIES.some((category) => category === item.category),
+  ).length;
+  const neighbourhoods = new Map<
+    string,
+    {
+      id: string;
+      cityId: string;
+      name: string;
+      projects: PreviewProject[];
+    }
+  >();
+  for (const item of activeItems) {
+    const existing = neighbourhoods.get(item.neighbourhood.id);
+    neighbourhoods.set(item.neighbourhood.id, {
+      ...item.neighbourhood,
+      projects: [...(existing?.projects ?? []), item],
+    });
+  }
   return {
     dataMode: "preview",
     generatedAt: now.toISOString(),
-    activeSince: serializeDate(
-      edmontonCivilDate(now, configuredInfillScoringConfig().maxEpisodeGapDays),
-    )!,
-    activeThrough: serializeDate(edmontonCivilDate(now))!,
-    newProjects: { 7: countWithin(7), 30: countWithin(30), 90: countWithin(90) },
+    range,
+    potentialInfillStarts,
     lifecycle: {
-      7: { development: 0, building: 1, occupancy: 0 },
-      30: { development: 1, building: 2, occupancy: 0 },
-      90: { development: 1, building: 2, occupancy: 0 },
+      development: activeItems.filter(
+        (item) => item.latestEvent?.permitType === "Development Permit",
+      ).length,
+      building: activeItems.filter((item) => item.latestEvent?.permitType === "Building Permit")
+        .length,
+      occupancy: 0,
     },
     categoryBreakdown: PUBLIC_PROJECT_CATEGORIES.flatMap((category) => {
-      const count = items.filter((item) => item.category === category).length;
+      const count = activeItems.filter((item) => item.category === category).length;
       return count ? [{ category, label: PROJECT_CATEGORY_LABELS[category], count }] : [];
     }),
-    neighbourhoodBreakdown: neighbourhoods.map(({ id, cityId, name, projectCount }) => {
-      const projects = items.filter((project) => project.neighbourhood.id === id);
+    neighbourhoodBreakdown: [...neighbourhoods.values()].map(({ id, cityId, name, projects }) => {
       const located = projects.filter(
         (project): project is PreviewProject & { latitude: number; longitude: number } =>
           project.latitude !== null && project.longitude !== null,
@@ -1419,7 +1435,7 @@ export function getPreviewDashboardOverview(now = new Date()): DashboardOverview
         id,
         cityId,
         name,
-        count: projectCount,
+        count: projects.length,
         latitude:
           located.length === 0
             ? null
@@ -1430,9 +1446,9 @@ export function getPreviewDashboardOverview(now = new Date()): DashboardOverview
             : located.reduce((total, project) => total + project.longitude, 0) / located.length,
       };
     }),
-    highConfidenceProjects: items.filter((item) => item.confidence >= 80),
-    recentDemolitions: [items[0]],
-    recentConstruction: items,
+    highConfidenceProjects: activeItems.filter((item) => item.confidence >= 80),
+    recentDemolitions: activeItems.filter((item) => item.id === items[0]?.id),
+    recentConstruction: activeItems,
     latestImport: null,
     warnings: [
       {
