@@ -2,17 +2,35 @@
 
 ARG NODE_VERSION=22.23.2
 ARG NPM_VERSION=12.0.2
+ARG NPM_BRACE_EXPANSION_VERSION=5.0.9
 
 FROM node:${NODE_VERSION}-bookworm-slim AS base
 ARG NPM_VERSION
+ARG NPM_BRACE_EXPANSION_VERSION
 WORKDIR /app
 
 ENV NEXT_TELEMETRY_DISABLED=1
 
+# The pinned npm release bundles a vulnerable brace-expansion version. Keep the
+# exact replacement below until an npm release carries the patched dependency itself.
 RUN apt-get update \
     && apt-get install --no-install-recommends -y ca-certificates openssl \
     && npm install --global "npm@${NPM_VERSION}" \
+    && printf '%s\n' "${NPM_BRACE_EXPANSION_VERSION}" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$' \
+    && mkdir -p /tmp/npm-security-pins \
+    && npm pack \
+        --pack-destination /tmp/npm-security-pins \
+        "brace-expansion@${NPM_BRACE_EXPANSION_VERSION}" \
+    && rm -rf /usr/local/lib/node_modules/npm/node_modules/brace-expansion \
+    && mkdir -p /usr/local/lib/node_modules/npm/node_modules/brace-expansion \
+    && tar -xzf \
+        "/tmp/npm-security-pins/brace-expansion-${NPM_BRACE_EXPANSION_VERSION}.tgz" \
+        --strip-components=1 \
+        -C /usr/local/lib/node_modules/npm/node_modules/brace-expansion \
+    && NPM_BRACE_EXPANSION_VERSION="${NPM_BRACE_EXPANSION_VERSION}" node --eval \
+        "const actual = require('/usr/local/lib/node_modules/npm/node_modules/brace-expansion/package.json').version; if (actual !== process.env.NPM_BRACE_EXPANSION_VERSION) process.exit(1)" \
     && npm cache clean --force \
+    && rm -rf /tmp/npm-security-pins \
     && rm -rf /var/lib/apt/lists/*
 
 FROM base AS dependencies

@@ -282,15 +282,25 @@ jobs:
       - name: Validate application runtime image
         run: docker run --rm --entrypoint node edmonton-infill-tracker:security-scan --version
 
-      - name: Validate pinned npm runtime
+      - name: Validate pinned npm runtime dependencies
         shell: bash
         run: |
           set -euo pipefail
           expected_npm=$(sed -n 's/^ARG NPM_VERSION=//p' Dockerfile)
+          expected_npm_brace_expansion=$(sed -n 's/^ARG NPM_BRACE_EXPANSION_VERSION=//p' Dockerfile)
           printf '%s\n' "$expected_npm" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'
+          printf '%s\n' "$expected_npm_brace_expansion" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'
           actual_npm=$(docker run --rm --entrypoint npm edmonton-infill-tracker:security-scan --version)
           [ "$actual_npm" = "$expected_npm" ] || {
             printf 'Expected npm %s, found %s\n' "$expected_npm" "$actual_npm" >&2
+            exit 1
+          }
+          actual_npm_brace_expansion=$(docker run --rm --entrypoint node \
+            edmonton-infill-tracker:security-scan \
+            --eval "process.stdout.write(require('/usr/local/lib/node_modules/npm/node_modules/brace-expansion/package.json').version)")
+          [ "$actual_npm_brace_expansion" = "$expected_npm_brace_expansion" ] || {
+            printf 'Expected npm brace-expansion %s, found %s\n' \
+              "$expected_npm_brace_expansion" "$actual_npm_brace_expansion" >&2
             exit 1
           }
 

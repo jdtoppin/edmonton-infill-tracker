@@ -46,6 +46,7 @@ updates:
         update-types:
           - version-update:semver-major
 
-# Node.js, npm, Caddy, and PostgreSQL are pinned in several coordinated deployment
-# files. The support-component workflow updates those same-major pins together,
-# runs full CI, and opens a human-reviewed PR without deploying it.
+# Node.js, npm, npm's bundled brace-expansion security override, Caddy, and PostgreSQL
+# are pinned in coordinated deployment files. The support-component workflow updates
+# those same-major pins together, runs full CI, and opens a human-reviewed PR without
+# deploying it.

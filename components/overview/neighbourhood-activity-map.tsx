@@ -259,6 +259,7 @@ export function NeighbourhoodActivityMap({
     const mapMarkers: MapLibreMarker[] = [];
     const markerElements = new Map<string, HTMLButtonElement>();
     const markerWrappers = new Map<string, HTMLElement>();
+    const markerVisuals = new Map<string, HTMLElement>();
     markerElementsRef.current = markerElements;
     setMapState("loading");
 
@@ -318,7 +319,14 @@ export function NeighbourhoodActivityMap({
               const markerWrapper = document.createElement("div");
               markerWrapper.className = "group relative grid place-items-center";
               markerWrapper.dataset.neighbourhoodMarker = area.id;
-              markerWrapper.style.transition = "opacity 140ms ease";
+
+              // MapLibre owns the marker root's opacity and may overwrite it
+              // while updating projected positions. Keep the zoom transition on
+              // an inner element that remains entirely under app control.
+              const markerVisual = document.createElement("div");
+              markerVisual.className = "relative grid place-items-center";
+              markerVisual.dataset.neighbourhoodMarkerVisual = "";
+              markerVisual.style.transition = "opacity 140ms ease";
 
               const markerButton = document.createElement("button");
               markerButton.type = "button";
@@ -339,7 +347,8 @@ export function NeighbourhoodActivityMap({
                 "pointer-events-none absolute top-[calc(100%+6px)] max-w-44 whitespace-nowrap rounded-md border border-white/80 bg-white/95 px-2 py-1 text-[11px] font-bold text-[var(--spruce)] opacity-0 shadow-sm transition-opacity group-hover:opacity-100 group-focus-within:opacity-100";
               markerLabel.dataset.neighbourhoodMarkerLabel = "";
               markerLabel.textContent = area.name;
-              markerWrapper.append(markerButton, markerLabel);
+              markerVisual.append(markerButton, markerLabel);
+              markerWrapper.append(markerVisual);
 
               const marker = new maplibre.Marker({ element: markerWrapper, anchor: "center" })
                 .setLngLat([area.longitude, area.latitude])
@@ -347,6 +356,7 @@ export function NeighbourhoodActivityMap({
               mapMarkers.push(marker);
               markerElements.set(area.id, markerButton);
               markerWrappers.set(area.id, markerWrapper);
+              markerVisuals.set(area.id, markerVisual);
               bounds.extend([area.longitude, area.latitude]);
             }
 
@@ -387,9 +397,12 @@ export function NeighbourhoodActivityMap({
         const handleZoom = () => {
           const showingProjects = mapInstance.getZoom() >= PROJECT_DETAIL_ZOOM;
           mapContainer.dataset.mapDetail = showingProjects ? "projects" : "neighbourhoods";
-          for (const wrapper of markerWrappers.values()) {
-            wrapper.style.opacity = showingProjects ? "0" : "1";
-            wrapper.style.pointerEvents = showingProjects ? "none" : "auto";
+          for (const [areaId, visual] of markerVisuals) {
+            visual.style.opacity = showingProjects ? "0" : "1";
+            visual.style.pointerEvents = showingProjects ? "none" : "auto";
+            visual.setAttribute("aria-hidden", String(showingProjects));
+            const button = markerElements.get(areaId);
+            if (button) button.tabIndex = showingProjects ? -1 : 0;
           }
         };
         const handleProjectClick = (event: MapLayerMouseEvent) => {
@@ -446,6 +459,7 @@ export function NeighbourhoodActivityMap({
       for (const marker of mapMarkers) marker.remove();
       markerElements.clear();
       markerWrappers.clear();
+      markerVisuals.clear();
       markerElementsRef.current = new Map();
       map?.remove();
       mapRef.current = null;

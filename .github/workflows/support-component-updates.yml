@@ -146,7 +146,7 @@ jobs:
             '' \
             "$UPDATE_SUMMARY" \
             '' \
-            'This proposal is limited to same-major Node.js, npm, Caddy, and PostgreSQL releases.' \
+            'This proposal is limited to same-major Node.js, npm, npm bundled brace-expansion, Caddy, and PostgreSQL releases.' \
             'The exact npm lockfile audit and the full project CI workflow passed before this PR was opened.' \
             'It is not merged or deployed automatically; review release notes and merge manually.' \
             > "$body_file"
@@ -158,7 +158,7 @@ jobs:
 
       - name: Report that pins are current
         if: steps.pending.outputs.exists != 'true' && steps.updates.outputs.changed != 'true'
-        run: echo "Node.js, npm, Caddy, and PostgreSQL are already on their newest same-major releases."
+        run: echo "Node.js, npm, npm bundled brace-expansion, Caddy, and PostgreSQL are already on their newest same-major releases."
 
       - name: Report the pending proposal
         if: steps.pending.outputs.exists == 'true'

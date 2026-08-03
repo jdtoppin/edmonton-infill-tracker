@@ -138,12 +138,13 @@ Avoid `docker compose down --volumes`: it deletes the named PostgreSQL volume.
 
 There is intentionally no GitHub-to-Mac automatic deployment in the MVP.
 
-Node.js, npm, Caddy, and PostgreSQL pins are checked weekly by the
-`Support component updates` workflow. It considers stable same-major releases only, updates every
-coordinated deployment pin together, audits the npm lockfile, pushes an isolated `codex/` proposal
-branch, and dispatches the complete CI workflow. A pull request is opened only after that run passes;
-it is never merged or deployed automatically. npm package minor/patch updates and GitHub Actions are
-proposed separately by Dependabot, while major releases remain deliberate review work.
+Node.js, npm, npm's bundled `brace-expansion` security override, Caddy, and PostgreSQL pins are
+checked weekly by the `Support component updates` workflow. It considers stable same-major releases
+only, updates every coordinated deployment pin together, audits the npm lockfile, pushes an isolated
+`codex/` proposal branch, and dispatches the complete CI workflow. A pull request is opened only
+after that run passes; it is never merged or deployed automatically. npm package minor/patch updates
+and GitHub Actions are proposed separately by Dependabot, while major releases remain deliberate
+review work.
 
 The regular CI workflow also runs weekly even when source code has not changed. It fails on high or
 critical npm advisories and on fixed high or critical vulnerabilities found in the built application,
@@ -168,8 +169,9 @@ After reading the release notes and confirming CI passed, update with one comman
 It first confirms Funnel is off, refuses a dirty checkout, creates and verifies a backup, fast-forwards only, and rebuilds while the current app remains available. It then stops `caddy`, `web`, `worker`, and `scheduler`, leaves PostgreSQL running, applies migrations, confirms Funnel is still off, recreates services without deleting volumes, and checks local/Tailscale health. Review `./scripts/infill logs` afterward and exercise login plus one project view.
 
 Because reviewed support-component pins live in the repository, the same update command rebuilds the
-application and custom PostGIS image with the tested Node.js/npm/PostgreSQL releases and pulls the
-pinned Caddy release. It does not discover or install an unreviewed runtime version on the Mac mini.
+application and custom PostGIS image with the tested Node.js/npm/PostgreSQL releases, replaces npm's
+bundled `brace-expansion` with the reviewed fixed version, and pulls the pinned Caddy release. It does
+not discover or install an unreviewed runtime version on the Mac mini.
 
 If migration fails, the update exits with PostgreSQL running and all application-facing services stopped. Do not manually start the previous application against a possibly changed schema. Review the migration output and database logs, correct the cause, and rerun `./scripts/infill update`. To roll back instead, restore the verified pre-update backup before checking out, rebuilding, and starting the previous known-good version. A Funnel verification failure after migration also leaves application-facing services stopped; disable Funnel or restore Tailscale status access, then use `./scripts/infill start`.
 

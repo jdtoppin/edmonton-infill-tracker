@@ -66,6 +66,19 @@ test("@responsive shows the live permit intelligence overview", async ({ page })
   await expect(
     overviewMap.getByText("zoom in to reveal individual projects", { exact: false }),
   ).toBeVisible();
+  await expect(overviewMap).not.toHaveAttribute("data-map-state", "loading");
+  if ((await overviewMap.getAttribute("data-map-state")) === "ready") {
+    const summaryVisuals = overviewMap.locator("[data-neighbourhood-marker-visual]");
+    const summaryCount = await summaryVisuals.count();
+    if (summaryCount > 0) {
+      const countBubbles = overviewMap.locator("[data-neighbourhood-marker] button");
+      expect(await countBubbles.count()).toBe(summaryCount);
+      await countBubbles.first().click();
+      await expect(overviewMapRegion).toHaveAttribute("data-map-detail", "projects");
+      await expect(summaryVisuals.first()).toHaveCSS("opacity", "0");
+      await expect(summaryVisuals.first()).toHaveAttribute("aria-hidden", "true");
+    }
+  }
   const exploreLink = page.getByRole("main").getByRole("link", { name: "Explore projects" });
   await expect(exploreLink).toBeVisible();
   expect(await exploreLink.evaluate((element) => getComputedStyle(element).color)).toBe(
