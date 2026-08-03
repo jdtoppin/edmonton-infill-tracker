@@ -337,7 +337,6 @@ case "$command_name" in
         [ "${#app_build_sha}" -eq 40 ] ||
           die "the updated Git revision is not a full commit SHA."
         APP_BUILD_SHA="$app_build_sha" docker compose build --pull
-        docker compose pull caddy
         docker compose stop caddy web worker scheduler
         if ! docker compose run --rm migrate; then
           printf '%s\n' \

@@ -276,8 +276,11 @@ jobs:
           --tag edmonton-infill-postgis:security-scan
           deploy/postgis
 
-      - name: Pull pinned Caddy image
-        run: docker pull caddy:2.11.4-alpine
+      - name: Build source-pinned Caddy image
+        run: >-
+          docker build
+          --tag edmonton-infill-caddy:security-scan
+          deploy/caddy
 
       - name: Validate application runtime image
         run: docker run --rm --entrypoint node edmonton-infill-tracker:security-scan --version
@@ -309,7 +312,7 @@ jobs:
           docker run
           --rm
           --volume "$GITHUB_WORKSPACE/deploy/Caddyfile.example:/etc/caddy/Caddyfile:ro"
-          caddy:2.11.4-alpine
+          edmonton-infill-caddy:security-scan
           caddy validate --config /etc/caddy/Caddyfile
 
       - name: Validate PostGIS runtime image
@@ -374,7 +377,7 @@ jobs:
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           scan-type: image
-          image-ref: caddy:2.11.4-alpine
+          image-ref: edmonton-infill-caddy:security-scan
           format: table
           exit-code: "1"
           ignore-unfixed: true

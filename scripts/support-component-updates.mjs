@@ -27,11 +27,30 @@ const componentDefinitions = {
     packageName: "brace-expansion",
     versionParts: 3,
   },
+  caddyGo: {
+    label: "Caddy Go toolchain",
+    source: "docker",
+    repository: "golang",
+    suffix: "alpine3.24",
+    versionParts: 3,
+  },
   caddy: {
     label: "Caddy",
     source: "docker",
     repository: "caddy",
     suffix: "alpine",
+    versionParts: 3,
+  },
+  caddyXText: {
+    label: "Caddy golang.org/x/text",
+    source: "go-module",
+    packageName: "golang.org/x/text",
+    versionParts: 3,
+  },
+  caddyGrpc: {
+    label: "Caddy google.golang.org/grpc",
+    source: "go-module",
+    packageName: "google.golang.org/grpc",
     versionParts: 3,
   },
   postgres: {
@@ -110,9 +129,9 @@ async function readRepositoryFile(relativePath) {
 }
 
 export async function readPinnedVersions() {
-  const [dockerfile, compose, postgresDockerfile] = await Promise.all([
+  const [dockerfile, caddyDockerfile, postgresDockerfile] = await Promise.all([
     readRepositoryFile("Dockerfile"),
-    readRepositoryFile("docker-compose.yml"),
+    readRepositoryFile("deploy/caddy/Dockerfile"),
     readRepositoryFile("deploy/postgis/Dockerfile"),
   ]);
 
@@ -124,10 +143,25 @@ export async function readPinnedVersions() {
       /^ARG NPM_BRACE_EXPANSION_VERSION=(\d+\.\d+\.\d+)$/gm,
       "Dockerfile",
     ),
+    caddyGo: exactlyOneMatch(
+      caddyDockerfile,
+      /^ARG CADDY_GO_VERSION=(\d+\.\d+\.\d+)$/gm,
+      "deploy/caddy/Dockerfile",
+    ),
     caddy: exactlyOneMatch(
-      compose,
-      /^\s+image: caddy:(\d+\.\d+\.\d+)-alpine$/gm,
-      "docker-compose.yml",
+      caddyDockerfile,
+      /^ARG CADDY_VERSION=(\d+\.\d+\.\d+)$/gm,
+      "deploy/caddy/Dockerfile",
+    ),
+    caddyXText: exactlyOneMatch(
+      caddyDockerfile,
+      /^ARG CADDY_X_TEXT_VERSION=(\d+\.\d+\.\d+)$/gm,
+      "deploy/caddy/Dockerfile",
+    ),
+    caddyGrpc: exactlyOneMatch(
+      caddyDockerfile,
+      /^ARG CADDY_GRPC_VERSION=(\d+\.\d+\.\d+)$/gm,
+      "deploy/caddy/Dockerfile",
     ),
     postgres: exactlyOneMatch(
       postgresDockerfile,
@@ -259,6 +293,36 @@ async function fetchNpmPackageVersions(packageName, fetchImpl = fetch) {
   return versions;
 }
 
+async function fetchGoModuleVersions(packageName, fetchImpl = fetch) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), requestTimeoutMs);
+  const modulePath = packageName.split("/").map(encodeURIComponent).join("/");
+  let response;
+  try {
+    response = await fetchImpl(`https://proxy.golang.org/${modulePath}/@v/list`, {
+      headers: { accept: "text/plain", "user-agent": "edmonton-infill-support-updater" },
+      redirect: "error",
+      signal: controller.signal,
+    });
+  } finally {
+    clearTimeout(timer);
+  }
+  if (!response.ok) throw new Error(`Go module proxy returned HTTP ${response.status}.`);
+
+  const body = await response.text();
+  if (Buffer.byteLength(body, "utf8") > maximumResponseBytes) {
+    throw new Error("Go module proxy response exceeded the size limit.");
+  }
+  const versions = body
+    .split(/\r?\n/)
+    .map((version) => (/^v\d+\.\d+\.\d+$/.test(version) ? version.slice(1) : null))
+    .filter((version) => version !== null);
+  if (versions.length === 0) {
+    throw new Error(`Go module proxy returned no stable ${packageName} versions.`);
+  }
+  return versions;
+}
+
 export async function discoverIncrementalUpdates(currentVersions, fetchImpl = fetch) {
   const entries = await Promise.all(
     Object.entries(componentDefinitions).map(async ([key, definition]) => {
@@ -278,12 +342,18 @@ export async function discoverIncrementalUpdates(currentVersions, fetchImpl = fe
                 versions: await fetchNpmPackageVersions(definition.packageName, fetchImpl),
                 versionParts: definition.versionParts,
               })
-            : selectLatestIncrementalVersion({
-                current,
-                tags: await fetchDockerTags(definition.repository, currentParts[0], fetchImpl),
-                suffix: definition.suffix,
-                versionParts: definition.versionParts,
-              });
+            : definition.source === "go-module"
+              ? selectLatestSameMajorFromVersions({
+                  current,
+                  versions: await fetchGoModuleVersions(definition.packageName, fetchImpl),
+                  versionParts: definition.versionParts,
+                })
+              : selectLatestIncrementalVersion({
+                  current,
+                  tags: await fetchDockerTags(definition.repository, currentParts[0], fetchImpl),
+                  suffix: definition.suffix,
+                  versionParts: definition.versionParts,
+                });
       return [key, { ...definition, current, latest }];
     }),
   );
@@ -312,6 +382,10 @@ export async function applyPinnedVersions(current, latest) {
   const nodeReplacement = [current.node, latest.node];
   const npmReplacement = [current.npm, latest.npm];
   const npmBraceExpansionReplacement = [current.npmBraceExpansion, latest.npmBraceExpansion];
+  const caddyGoReplacement = [current.caddyGo, latest.caddyGo];
+  const caddyReplacement = [current.caddy, latest.caddy];
+  const caddyXTextReplacement = [current.caddyXText, latest.caddyXText];
+  const caddyGrpcReplacement = [current.caddyGrpc, latest.caddyGrpc];
   const postgresImageReplacement = [`${current.postgres}-3`, `${latest.postgres}-3`];
 
   await Promise.all([
@@ -340,7 +414,26 @@ export async function applyPinnedVersions(current, latest) {
         `edmonton-infill-postgis:\${POSTGIS_IMAGE_TAG:-${postgresImageReplacement[1]}}`,
         1,
       ],
-      [`image: caddy:${current.caddy}-alpine`, `image: caddy:${latest.caddy}-alpine`, 1],
+      [
+        `CADDY_GO_VERSION: \${CADDY_GO_VERSION:-${caddyGoReplacement[0]}}`,
+        `CADDY_GO_VERSION: \${CADDY_GO_VERSION:-${caddyGoReplacement[1]}}`,
+        1,
+      ],
+      [
+        `CADDY_VERSION: \${CADDY_VERSION:-${caddyReplacement[0]}}`,
+        `CADDY_VERSION: \${CADDY_VERSION:-${caddyReplacement[1]}}`,
+        1,
+      ],
+      [
+        `CADDY_X_TEXT_VERSION: \${CADDY_X_TEXT_VERSION:-${caddyXTextReplacement[0]}}`,
+        `CADDY_X_TEXT_VERSION: \${CADDY_X_TEXT_VERSION:-${caddyXTextReplacement[1]}}`,
+        1,
+      ],
+      [
+        `CADDY_GRPC_VERSION: \${CADDY_GRPC_VERSION:-${caddyGrpcReplacement[0]}}`,
+        `CADDY_GRPC_VERSION: \${CADDY_GRPC_VERSION:-${caddyGrpcReplacement[1]}}`,
+        1,
+      ],
     ]),
     updateFile("docker-compose.dev.yml", [
       [
@@ -366,9 +459,26 @@ export async function applyPinnedVersions(current, latest) {
         1,
       ],
     ]),
+    updateFile("deploy/caddy/Dockerfile", [
+      [
+        `ARG CADDY_GO_VERSION=${caddyGoReplacement[0]}`,
+        `ARG CADDY_GO_VERSION=${caddyGoReplacement[1]}`,
+        1,
+      ],
+      [`ARG CADDY_VERSION=${caddyReplacement[0]}`, `ARG CADDY_VERSION=${caddyReplacement[1]}`, 1],
+      [
+        `ARG CADDY_X_TEXT_VERSION=${caddyXTextReplacement[0]}`,
+        `ARG CADDY_X_TEXT_VERSION=${caddyXTextReplacement[1]}`,
+        1,
+      ],
+      [
+        `ARG CADDY_GRPC_VERSION=${caddyGrpcReplacement[0]}`,
+        `ARG CADDY_GRPC_VERSION=${caddyGrpcReplacement[1]}`,
+        1,
+      ],
+    ]),
     updateFile(".github/workflows/ci.yml", [
       [`node-version: ${current.node}`, `node-version: ${latest.node}`, 5],
-      [`caddy:${current.caddy}-alpine`, `caddy:${latest.caddy}-alpine`, 3],
     ]),
     updateFile(".github/workflows/support-component-updates.yml", [
       [`node-version: ${current.node}`, `node-version: ${latest.node}`, 1],

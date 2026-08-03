@@ -64,7 +64,7 @@ jobs:
         run: |
           set -euo pipefail
           git diff --check
-          unexpected_files=$(git diff --name-only --diff-filter=ACMRTUXB | grep -Ev '^(Dockerfile|docker-compose\.yml|docker-compose\.dev\.yml|deploy/postgis/Dockerfile|\.github/workflows/ci\.yml|\.github/workflows/support-component-updates\.yml)$' || true)
+          unexpected_files=$(git diff --name-only --diff-filter=ACMRTUXB | grep -Ev '^(Dockerfile|docker-compose\.yml|docker-compose\.dev\.yml|deploy/caddy/Dockerfile|deploy/postgis/Dockerfile|\.github/workflows/ci\.yml|\.github/workflows/support-component-updates\.yml)$' || true)
           if [ -n "$unexpected_files" ]; then
             printf 'The updater changed files outside its allowlist:\n%s\n' "$unexpected_files" >&2
             exit 1
@@ -95,6 +95,7 @@ jobs:
             Dockerfile \
             docker-compose.yml \
             docker-compose.dev.yml \
+            deploy/caddy/Dockerfile \
             deploy/postgis/Dockerfile \
             .github/workflows/ci.yml \
             .github/workflows/support-component-updates.yml
@@ -146,7 +147,7 @@ jobs:
             '' \
             "$UPDATE_SUMMARY" \
             '' \
-            'This proposal is limited to same-major Node.js, npm, npm bundled brace-expansion, Caddy, and PostgreSQL releases.' \
+            'This proposal is limited to same-major Node.js, npm, npm bundled brace-expansion, Caddy, its patched Go build dependencies, and PostgreSQL releases.' \
             'The exact npm lockfile audit and the full project CI workflow passed before this PR was opened.' \
             'It is not merged or deployed automatically; review release notes and merge manually.' \
             > "$body_file"
@@ -158,7 +159,7 @@ jobs:
 
       - name: Report that pins are current
         if: steps.pending.outputs.exists != 'true' && steps.updates.outputs.changed != 'true'
-        run: echo "Node.js, npm, npm bundled brace-expansion, Caddy, and PostgreSQL are already on their newest same-major releases."
+        run: echo "Node.js, npm, npm bundled brace-expansion, Caddy, its patched Go build dependencies, and PostgreSQL are already on their newest same-major releases."
 
       - name: Report the pending proposal
         if: steps.pending.outputs.exists == 'true'

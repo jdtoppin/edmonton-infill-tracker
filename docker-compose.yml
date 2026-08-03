@@ -131,7 +131,15 @@ services:
       start_period: 20s
 
   caddy:
-    image: caddy:2.11.4-alpine
+    image: edmonton-infill-caddy:${CADDY_IMAGE_TAG:-local}
+    build:
+      context: ./deploy/caddy
+      dockerfile: Dockerfile
+      args:
+        CADDY_GO_VERSION: ${CADDY_GO_VERSION:-1.26.5}
+        CADDY_VERSION: ${CADDY_VERSION:-2.11.4}
+        CADDY_X_TEXT_VERSION: ${CADDY_X_TEXT_VERSION:-0.40.0}
+        CADDY_GRPC_VERSION: ${CADDY_GRPC_VERSION:-1.83.0}
     environment:
       SITE_ADDRESS: ${SITE_ADDRESS:-:80}
       UPSTREAM_FORWARDED_PROTO: ${UPSTREAM_FORWARDED_PROTO:-http}
@@ -148,6 +156,10 @@ services:
     read_only: true
     security_opt:
       - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
     restart: unless-stopped
     depends_on:
       web:

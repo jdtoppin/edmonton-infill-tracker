@@ -45,6 +45,7 @@ describe("self-hosted foundation", () => {
     expect(compose).not.toContain("/var/run/docker.sock");
     expect(dockerfile).toContain('ARG APP_BUILD_SHA="unknown"');
     expect(operator).toContain('APP_BUILD_SHA="$app_build_sha" docker compose build --pull');
+    expect(operator).not.toContain("docker compose pull caddy");
     expect(operator).toContain('[ "${#app_build_sha}" -eq 40 ]');
     expect(operator).toContain('""|*[!0-9a-f]*)');
     expect(operator).toContain('checkout_ref" = "refs/heads/main');

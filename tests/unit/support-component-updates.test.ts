@@ -93,6 +93,7 @@ describe("support-component update policy", () => {
   it("discovers a same-major bundled dependency update from package metadata", async () => {
     const dockerTags = {
       node: "22.23.2-bookworm-slim",
+      golang: "1.26.5-alpine3.24",
       caddy: "2.11.4-alpine",
       postgres: "17.10-bookworm",
     };
@@ -105,6 +106,12 @@ describe("support-component update policy", () => {
         return new Response(
           JSON.stringify({ versions: { "5.0.9": {}, "5.0.10": {}, "6.0.0": {} } }),
         );
+      }
+      if (url === "https://proxy.golang.org/golang.org/x/text/@v/list") {
+        return new Response("v0.39.0\nv0.40.0\n");
+      }
+      if (url === "https://proxy.golang.org/google.golang.org/grpc/@v/list") {
+        return new Response("v1.82.1\nv1.83.0\n");
       }
       const repository = Object.keys(dockerTags).find((name) =>
         url.includes(`/library/${name}/tags`),
@@ -128,28 +135,43 @@ describe("support-component update policy", () => {
         node: "22.23.2",
         npm: "12.0.2",
         npmBraceExpansion: "5.0.9",
+        caddyGo: "1.26.5",
         caddy: "2.11.4",
+        caddyXText: "0.39.0",
+        caddyGrpc: "1.82.1",
         postgres: "17.10",
       },
       fetchImpl,
     );
 
     expect(updates.npmBraceExpansion.latest).toBe("5.0.10");
+    expect(updates.caddyXText.latest).toBe("0.40.0");
+    expect(updates.caddyGrpc.latest).toBe("1.83.0");
   });
 
   it("keeps coordinated support pins synchronized", async () => {
-    const [dockerfile, compose, developmentCompose, postgresDockerfile, ci, updater] =
-      await Promise.all([
-        readFile(new URL("../../Dockerfile", import.meta.url), "utf8"),
-        readFile(new URL("../../docker-compose.yml", import.meta.url), "utf8"),
-        readFile(new URL("../../docker-compose.dev.yml", import.meta.url), "utf8"),
-        readFile(new URL("../../deploy/postgis/Dockerfile", import.meta.url), "utf8"),
-        readFile(new URL("../../.github/workflows/ci.yml", import.meta.url), "utf8"),
-        readFile(
-          new URL("../../.github/workflows/support-component-updates.yml", import.meta.url),
-          "utf8",
-        ),
-      ]);
+    const [
+      dockerfile,
+      compose,
+      developmentCompose,
+      caddyDockerfile,
+      caddyMain,
+      postgresDockerfile,
+      ci,
+      updater,
+    ] = await Promise.all([
+      readFile(new URL("../../Dockerfile", import.meta.url), "utf8"),
+      readFile(new URL("../../docker-compose.yml", import.meta.url), "utf8"),
+      readFile(new URL("../../docker-compose.dev.yml", import.meta.url), "utf8"),
+      readFile(new URL("../../deploy/caddy/Dockerfile", import.meta.url), "utf8"),
+      readFile(new URL("../../deploy/caddy/main.go", import.meta.url), "utf8"),
+      readFile(new URL("../../deploy/postgis/Dockerfile", import.meta.url), "utf8"),
+      readFile(new URL("../../.github/workflows/ci.yml", import.meta.url), "utf8"),
+      readFile(
+        new URL("../../.github/workflows/support-component-updates.yml", import.meta.url),
+        "utf8",
+      ),
+    ]);
 
     const nodeVersion = dockerfile.match(/^ARG NODE_VERSION=(\d+\.\d+\.\d+)$/m)?.[1];
     const npmVersion = dockerfile.match(/^ARG NPM_VERSION=(\d+\.\d+\.\d+)$/m)?.[1];
@@ -157,13 +179,23 @@ describe("support-component update policy", () => {
       /^ARG NPM_BRACE_EXPANSION_VERSION=(\d+\.\d+\.\d+)$/m,
     )?.[1];
     const postgresVersion = postgresDockerfile.match(/^FROM postgres:(\d+\.\d+)-bookworm$/m)?.[1];
-    const caddyVersion = compose.match(/^\s+image: caddy:(\d+\.\d+\.\d+)-alpine$/m)?.[1];
+    const caddyGoVersion = caddyDockerfile.match(/^ARG CADDY_GO_VERSION=(\d+\.\d+\.\d+)$/m)?.[1];
+    const caddyVersion = caddyDockerfile.match(/^ARG CADDY_VERSION=(\d+\.\d+\.\d+)$/m)?.[1];
+    const caddyXTextVersion = caddyDockerfile.match(
+      /^ARG CADDY_X_TEXT_VERSION=(\d+\.\d+\.\d+)$/m,
+    )?.[1];
+    const caddyGrpcVersion = caddyDockerfile.match(
+      /^ARG CADDY_GRPC_VERSION=(\d+\.\d+\.\d+)$/m,
+    )?.[1];
 
     expect(nodeVersion).toBeTruthy();
     expect(npmVersion).toBeTruthy();
     expect(npmBraceExpansionVersion).toBeTruthy();
     expect(postgresVersion).toBeTruthy();
+    expect(caddyGoVersion).toBeTruthy();
     expect(caddyVersion).toBeTruthy();
+    expect(caddyXTextVersion).toBeTruthy();
+    expect(caddyGrpcVersion).toBeTruthy();
     for (const file of [compose, developmentCompose, ci, updater]) {
       expect(file).toContain(nodeVersion);
     }
@@ -180,8 +212,18 @@ describe("support-component update policy", () => {
     );
     expect(ci).toContain("expected_npm_brace_expansion");
     expect(ci).toContain("actual_npm_brace_expansion");
-    expect(ci).toContain(`docker pull caddy:${caddyVersion}-alpine`);
-    expect(ci.split(`caddy:${caddyVersion}-alpine`).length - 1).toBe(3);
+    expect(compose).toContain(`CADDY_GO_VERSION:-${caddyGoVersion}`);
+    expect(compose).toContain(`CADDY_VERSION:-${caddyVersion}`);
+    expect(compose).toContain(`CADDY_X_TEXT_VERSION:-${caddyXTextVersion}`);
+    expect(compose).toContain(`CADDY_GRPC_VERSION:-${caddyGrpcVersion}`);
+    expect(caddyDockerfile).toContain(`golang:\${CADDY_GO_VERSION}-alpine3.24`);
+    expect(caddyDockerfile).toContain(`github.com/caddyserver/caddy/v2@v\${CADDY_VERSION}`);
+    expect(caddyDockerfile).toContain(`golang.org/x/text@v\${CADDY_X_TEXT_VERSION}`);
+    expect(caddyDockerfile).toContain(`google.golang.org/grpc@v\${CADDY_GRPC_VERSION}`);
+    expect(caddyMain).toContain('caddycmd "github.com/caddyserver/caddy/v2/cmd"');
+    expect(ci).toContain("docker build");
+    expect(ci).toContain("deploy/caddy");
+    expect(ci.split("edmonton-infill-caddy:security-scan").length - 1).toBe(3);
   });
 
   it("opens support PRs only after the full CI run succeeds", async () => {
@@ -204,9 +246,10 @@ describe("support-component update policy", () => {
     expect(workflow).toContain('gh run watch "$run_id" --exit-status');
     expect(workflow.indexOf("gh run watch")).toBeLessThan(workflow.indexOf("gh pr create"));
     expect(workflow).not.toMatch(/gh pr merge|auto-merge|docker compose up|scripts\/infill update/);
-    expect(updaterScript).toContain(
-      "[`caddy:${current.caddy}-alpine`, `caddy:${latest.caddy}-alpine`, 3]",
-    );
+    expect(updaterScript).toContain('label: "Caddy Go toolchain"');
+    expect(updaterScript).toContain('label: "Caddy golang.org/x/text"');
+    expect(updaterScript).toContain('label: "Caddy google.golang.org/grpc"');
+    expect(updaterScript).toContain('source: "go-module"');
     expect(updaterScript).toContain('label: "npm bundled brace-expansion"');
     expect(updaterScript).toContain(
       "`ARG NPM_BRACE_EXPANSION_VERSION=${npmBraceExpansionReplacement[0]}`",
@@ -214,6 +257,7 @@ describe("support-component update policy", () => {
     expect(ci).toContain("npm audit --audit-level=high");
     expect(ci).toContain("Container security");
     expect(ci).toContain("aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25");
+    expect(workflow).toContain("deploy/caddy/Dockerfile");
     expect(dependabot.match(/version-update:semver-major/g)).toHaveLength(2);
   });
 
@@ -254,5 +298,8 @@ describe("support-component update policy", () => {
       .split("- name: Scan PostGIS image")[1]
       ?.split("- name: Scan Caddy image")[0];
     expect(postgisScan).toContain("trivyignores: .github/trivyignore-postgis-gosu.yaml");
+    const caddyScan = ci.split("- name: Scan Caddy image")[1];
+    expect(caddyScan).toContain("image-ref: edmonton-infill-caddy:security-scan");
+    expect(caddyScan).not.toContain("trivyignores:");
   });
 });
