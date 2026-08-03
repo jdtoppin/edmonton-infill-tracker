@@ -5,6 +5,7 @@ import { ProjectCategory, ProjectStage } from "../../src/generated/prisma/enums"
 import {
   buildPublicProjectWhere,
   defaultProjectFilters,
+  listProjectMarkers,
   listProjects,
   parseProjectFilters,
   POTENTIAL_INFILL_START_CATEGORIES,
@@ -24,6 +25,7 @@ describe("project URL filters", () => {
   it("provides bounded, deterministic defaults", () => {
     expect(defaultProjectFilters()).toEqual({
       view: "split",
+      scope: "citywide",
       q: undefined,
       neighbourhoods: [],
       categories: [],
@@ -46,6 +48,7 @@ describe("project URL filters", () => {
   it("accepts repeated and comma-separated filters and removes duplicates", () => {
     const params = new URLSearchParams([
       ["view", "map"],
+      ["scope", "core"],
       ["q", "  99901 127 ST  "],
       ["neighbourhood", "WESTMOUNT,BONNIE-DOON"],
       ["neighbourhood", "WESTMOUNT"],
@@ -68,6 +71,7 @@ describe("project URL filters", () => {
     const parsed = parseProjectFilters(params);
     expect(parsed).toMatchObject({
       view: "map",
+      scope: "core",
       q: "99901 127 ST",
       neighbourhoods: ["WESTMOUNT", "BONNIE-DOON"],
       categories: [ProjectCategory.PROBABLE_DUPLEX, ProjectCategory.PROBABLE_GARDEN_SUITE],
@@ -87,6 +91,7 @@ describe("project URL filters", () => {
 
   it("rejects excluded categories, arbitrary sorts, invalid dates, and excessive pages", () => {
     expect(safeParseProjectFilters({ category: ProjectCategory.NOT_RELEVANT }).success).toBe(false);
+    expect(safeParseProjectFilters({ scope: "private" }).success).toBe(false);
     expect(safeParseProjectFilters({ sort: "DROP TABLE Project" }).success).toBe(false);
     expect(safeParseProjectFilters({ from: "2026-02-30" }).success).toBe(false);
     expect(safeParseProjectFilters({ pageSize: "101" }).success).toBe(false);
@@ -110,6 +115,69 @@ describe("project URL filters", () => {
       },
     });
     expect(where).not.toHaveProperty("latestEventDate");
+  });
+
+  it("limits dashboard drill-downs to the core infill area", () => {
+    const where = buildPublicProjectWhere(
+      parseProjectFilters({
+        scope: "core",
+        neighbourhood: "WESTMOUNT",
+        category: ProjectCategory.PROBABLE_NEW_DETACHED_INFILL,
+        from: "2026-07-27",
+        to: "2026-08-02",
+      }),
+    );
+
+    expect(where).toMatchObject({
+      infillAreaClassification: "CORE",
+      neighbourhood: { cityNeighbourhoodId: { in: ["WESTMOUNT"] } },
+      category: {
+        in: [ProjectCategory.PROBABLE_NEW_DETACHED_INFILL],
+        not: ProjectCategory.NOT_RELEVANT,
+      },
+      latestInfillActivityDate: {
+        gte: new Date("2026-07-27T00:00:00.000Z"),
+        lte: new Date("2026-08-02T00:00:00.000Z"),
+      },
+    });
+  });
+
+  it("uses the same canonical filters for list rows and map markers", async () => {
+    const findMany = vi.fn().mockResolvedValue([]);
+    const count = vi.fn().mockResolvedValue(0);
+    const db = {
+      project: { count, findMany },
+      $transaction: vi.fn(async (operations: Array<Promise<unknown>>) => Promise.all(operations)),
+    } as unknown as PrismaClient;
+    const filters = parseProjectFilters({
+      scope: "core",
+      view: "split",
+      neighbourhood: "WESTMOUNT",
+      from: "2026-07-27",
+      to: "2026-08-02",
+    });
+    const canonicalWhere = buildPublicProjectWhere(filters);
+
+    await listProjects(db, filters);
+    expect(findMany).toHaveBeenLastCalledWith(expect.objectContaining({ where: canonicalWhere }));
+
+    findMany.mockClear();
+    await listProjectMarkers(db, filters);
+    expect(findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          AND: [
+            canonicalWhere,
+            {
+              address: {
+                latitude: { not: null },
+                longitude: { not: null },
+              },
+            },
+          ],
+        },
+      }),
+    );
   });
 
   it("sorts the default project view by the latest qualifying infill milestone", async () => {

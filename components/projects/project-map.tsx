@@ -16,6 +16,11 @@ import {
   EDMONTON_COORDINATE_LIMITS,
   resolveMapStyle,
 } from "@/components/maps/map-style";
+import {
+  addCurrentNeighbourhoodLabelOverlay,
+  loadCurrentEdmontonNeighbourhoods,
+  suppressAggregateBasemapLabels,
+} from "@/components/maps/neighbourhood-labels";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
@@ -274,6 +279,7 @@ export function ProjectMap({
 
     let cancelled = false;
     let map: MapLibreMap | null = null;
+    let removeNeighbourhoodLabels: (() => void) | null = null;
 
     async function initializeMap() {
       try {
@@ -305,6 +311,7 @@ export function ProjectMap({
         const handleStyleLoad = () => {
           if (cancelled || loaded) return;
           try {
+            suppressAggregateBasemapLabels(mapInstance);
             mapInstance.addSource(MAP_SOURCE_ID, {
               type: "geojson",
               data: featureCollection,
@@ -388,6 +395,19 @@ export function ProjectMap({
 
             loaded = true;
             setRuntimeStatus("ready");
+            void loadCurrentEdmontonNeighbourhoods()
+              .then((labels) => {
+                if (cancelled) return;
+                removeNeighbourhoodLabels = addCurrentNeighbourhoodLabelOverlay({
+                  map: mapInstance,
+                  Marker: maplibre.Marker,
+                  labels,
+                });
+              })
+              .catch(() => {
+                // Current City labels add context but are not required for
+                // filtered project markers, clusters, or their interactions.
+              });
             if (initialSelectedId && projectsById.has(initialSelectedId)) {
               selectProject(initialSelectedId, false, false);
             }
@@ -446,6 +466,7 @@ export function ProjectMap({
 
     return () => {
       cancelled = true;
+      removeNeighbourhoodLabels?.();
       popupRef.current?.remove();
       popupRef.current = null;
       map?.remove();

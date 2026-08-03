@@ -3,23 +3,41 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { ArrowRight, MapPinned, MapPinOff, TriangleAlert } from "lucide-react";
-import type { Map as MapLibreMap, Marker as MapLibreMarker } from "maplibre-gl";
+import type { FeatureCollection, Point } from "geojson";
+import type {
+  Map as MapLibreMap,
+  MapLayerMouseEvent,
+  Marker as MapLibreMarker,
+  Popup as MapLibrePopup,
+} from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import {
   EDMONTON_CENTER,
   EDMONTON_COORDINATE_LIMITS,
   resolveMapStyle,
 } from "@/components/maps/map-style";
+import {
+  addCurrentNeighbourhoodLabelOverlay,
+  loadCurrentEdmontonNeighbourhoods,
+  suppressAggregateBasemapLabels,
+} from "@/components/maps/neighbourhood-labels";
 import { Card } from "@/components/ui/card";
 import type { DashboardOverview } from "@/src/services/project-read-model";
 
 type ActivityArea = DashboardOverview["neighbourhoodBreakdown"][number];
 type MappableActivityArea = ActivityArea & { latitude: number; longitude: number };
+type ActivityProject = DashboardOverview["mapProjects"][number];
+type MappableActivityProject = ActivityProject & { latitude: number; longitude: number };
+
+const ACTIVITY_PROJECT_SOURCE_ID = "overview-activity-projects";
+const ACTIVITY_PROJECT_LAYER_ID = "overview-activity-project-points";
+const PROJECT_DETAIL_ZOOM = 11.75;
 
 type NeighbourhoodActivityMapProps = {
   areas: readonly ActivityArea[];
   mapStyleUrl?: string | null;
   mapTileUrl?: string | null;
+  projects: readonly ActivityProject[];
   range: DashboardOverview["range"];
 };
 
@@ -38,8 +56,43 @@ function isMappable(area: ActivityArea): area is MappableActivityArea {
   );
 }
 
+function isMappableProject(project: ActivityProject): project is MappableActivityProject {
+  return (
+    typeof project.latitude === "number" &&
+    Number.isFinite(project.latitude) &&
+    project.latitude >= EDMONTON_COORDINATE_LIMITS.south &&
+    project.latitude <= EDMONTON_COORDINATE_LIMITS.north &&
+    typeof project.longitude === "number" &&
+    Number.isFinite(project.longitude) &&
+    project.longitude >= EDMONTON_COORDINATE_LIMITS.west &&
+    project.longitude <= EDMONTON_COORDINATE_LIMITS.east
+  );
+}
+
 function markerDiameter(count: number, maximum: number): number {
   return 40 + Math.round((count / Math.max(1, maximum)) * 22);
+}
+
+function projectHref(projectId: string): string {
+  return `/projects/${encodeURIComponent(projectId)}`;
+}
+
+function projectPopupContent(project: ActivityProject): HTMLElement {
+  const article = document.createElement("article");
+  article.className = "min-w-[210px] max-w-[280px] p-1 font-sans";
+  const address = document.createElement("h3");
+  address.className = "m-0 text-[13px] font-bold leading-5 text-[var(--spruce)]";
+  address.textContent = project.address;
+  const confidence = document.createElement("p");
+  confidence.className = "mt-1 mb-0 text-[11px] text-[var(--muted)]";
+  confidence.textContent = `${Math.max(0, Math.min(100, Math.round(project.confidence)))}% infill confidence`;
+  const link = document.createElement("a");
+  link.className =
+    "mt-3 inline-flex min-h-10 items-center rounded-lg bg-[var(--teal)] px-3 text-[12px] font-semibold text-white no-underline outline-none hover:bg-[var(--spruce-soft)] focus-visible:ring-2 focus-visible:ring-[var(--teal)] focus-visible:ring-offset-2";
+  link.href = projectHref(project.id);
+  link.textContent = "View project timeline";
+  article.append(address, confidence, link);
+  return article;
 }
 
 function applyMarkerSelection(
@@ -91,6 +144,7 @@ export function NeighbourhoodActivityMap({
   areas,
   mapStyleUrl,
   mapTileUrl,
+  projects,
   range,
 }: NeighbourhoodActivityMapProps) {
   const periodPhrase =
@@ -99,6 +153,35 @@ export function NeighbourhoodActivityMap({
       : `the last ${range.label.toLocaleLowerCase("en-CA")}`;
   const visibleAreas = useMemo(() => areas.slice(0, 10), [areas]);
   const mappedAreas = useMemo(() => visibleAreas.filter(isMappable), [visibleAreas]);
+  const visibleAreaIds = useMemo(
+    () => new Set(visibleAreas.map((area) => area.id)),
+    [visibleAreas],
+  );
+  const mappedProjects = useMemo(
+    () =>
+      projects
+        .filter(isMappableProject)
+        .filter((project) => visibleAreaIds.has(project.neighbourhoodId)),
+    [projects, visibleAreaIds],
+  );
+  const projectsById = useMemo(
+    () => new Map(mappedProjects.map((project) => [project.id, project])),
+    [mappedProjects],
+  );
+  const projectFeatureCollection = useMemo<
+    FeatureCollection<Point, { projectId: string; neighbourhoodId: string }>
+  >(
+    () => ({
+      type: "FeatureCollection",
+      features: mappedProjects.map((project) => ({
+        type: "Feature",
+        id: project.id,
+        geometry: { type: "Point", coordinates: [project.longitude, project.latitude] },
+        properties: { projectId: project.id, neighbourhoodId: project.neighbourhoodId },
+      })),
+    }),
+    [mappedProjects],
+  );
   const [selectedId, setSelectedId] = useState<string | null>(
     mappedAreas[0]?.id ?? visibleAreas[0]?.id ?? null,
   );
@@ -122,14 +205,37 @@ export function NeighbourhoodActivityMap({
       const map = mapRef.current;
       if (moveMap && area && map) {
         const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-        map.easeTo({
-          center: [area.longitude, area.latitude],
-          zoom: Math.max(map.getZoom(), 12),
-          duration: reduceMotion ? 0 : 450,
-        });
+        const areaProjects = mappedProjects.filter((project) => project.neighbourhoodId === areaId);
+        if (areaProjects.length > 1) {
+          const west = Math.min(...areaProjects.map((project) => project.longitude));
+          const east = Math.max(...areaProjects.map((project) => project.longitude));
+          const south = Math.min(...areaProjects.map((project) => project.latitude));
+          const north = Math.max(...areaProjects.map((project) => project.latitude));
+          const camera = map.cameraForBounds(
+            [
+              [west, south],
+              [east, north],
+            ],
+            { padding: 72, maxZoom: 15 },
+          );
+          map.easeTo({
+            ...(camera ?? { center: [area.longitude, area.latitude] }),
+            zoom: Math.max(camera?.zoom ?? PROJECT_DETAIL_ZOOM, PROJECT_DETAIL_ZOOM),
+            duration: reduceMotion ? 0 : 500,
+          });
+        } else {
+          const project = areaProjects[0];
+          map.easeTo({
+            center: project
+              ? [project.longitude, project.latitude]
+              : [area.longitude, area.latitude],
+            zoom: Math.max(map.getZoom(), project ? 14.5 : PROJECT_DETAIL_ZOOM),
+            duration: reduceMotion ? 0 : 450,
+          });
+        }
       }
     },
-    [mappedAreas],
+    [mappedAreas, mappedProjects],
   );
 
   useEffect(() => {
@@ -148,8 +254,11 @@ export function NeighbourhoodActivityMap({
     let cancelled = false;
     let map: MapLibreMap | null = null;
     let loaded = false;
+    let popup: MapLibrePopup | null = null;
+    let removeNeighbourhoodLabels: (() => void) | null = null;
     const mapMarkers: MapLibreMarker[] = [];
     const markerElements = new Map<string, HTMLButtonElement>();
+    const markerWrappers = new Map<string, HTMLElement>();
     markerElementsRef.current = markerElements;
     setMapState("loading");
 
@@ -171,16 +280,45 @@ export function NeighbourhoodActivityMap({
         });
         map = mapInstance;
         mapRef.current = mapInstance;
+        popup = new maplibre.Popup({ offset: 14, closeButton: true, focusAfterOpen: false });
         mapInstance.addControl(new maplibre.NavigationControl({ showCompass: false }), "top-right");
 
         const handleStyleLoad = () => {
           if (cancelled || loaded) return;
           try {
+            suppressAggregateBasemapLabels(mapInstance);
+            mapInstance.addSource(ACTIVITY_PROJECT_SOURCE_ID, {
+              type: "geojson",
+              data: projectFeatureCollection,
+            });
+            mapInstance.addLayer({
+              id: ACTIVITY_PROJECT_LAYER_ID,
+              type: "circle",
+              source: ACTIVITY_PROJECT_SOURCE_ID,
+              minzoom: PROJECT_DETAIL_ZOOM,
+              paint: {
+                "circle-color": "#176473",
+                "circle-radius": [
+                  "interpolate",
+                  ["linear"],
+                  ["zoom"],
+                  PROJECT_DETAIL_ZOOM,
+                  5,
+                  15,
+                  8,
+                ],
+                "circle-stroke-width": 2,
+                "circle-stroke-color": "#ffffff",
+                "circle-opacity": 0.96,
+              },
+            });
+
             const bounds = new maplibre.LngLatBounds();
             for (const area of mappedAreas) {
               const markerWrapper = document.createElement("div");
               markerWrapper.className = "group relative grid place-items-center";
               markerWrapper.dataset.neighbourhoodMarker = area.id;
+              markerWrapper.style.transition = "opacity 140ms ease";
 
               const markerButton = document.createElement("button");
               markerButton.type = "button";
@@ -192,9 +330,9 @@ export function NeighbourhoodActivityMap({
               markerButton.textContent = String(area.count);
               markerButton.setAttribute(
                 "aria-label",
-                `${area.name}: ${area.count} ${area.count === 1 ? "project" : "projects"} with qualifying activity in ${periodPhrase}, at the average mapped-project location`,
+                `${area.name}: ${area.count} ${area.count === 1 ? "project" : "projects"} with qualifying activity in ${periodPhrase}; select to zoom to individual project locations`,
               );
-              markerButton.addEventListener("click", () => selectArea(area.id, false));
+              markerButton.addEventListener("click", () => selectArea(area.id, true));
 
               const markerLabel = document.createElement("span");
               markerLabel.className =
@@ -208,6 +346,7 @@ export function NeighbourhoodActivityMap({
                 .addTo(mapInstance);
               mapMarkers.push(marker);
               markerElements.set(area.id, markerButton);
+              markerWrappers.set(area.id, markerWrapper);
               bounds.extend([area.longitude, area.latitude]);
             }
 
@@ -215,14 +354,28 @@ export function NeighbourhoodActivityMap({
             if (mappedAreas.length === 1) {
               mapInstance.jumpTo({
                 center: [mappedAreas[0].longitude, mappedAreas[0].latitude],
-                zoom: 12,
+                zoom: 11,
               });
             } else if (!bounds.isEmpty()) {
-              mapInstance.fitBounds(bounds, { padding: 58, maxZoom: 12, duration: 0 });
+              mapInstance.fitBounds(bounds, { padding: 58, maxZoom: 11, duration: 0 });
             }
 
             loaded = true;
             setMapState("ready");
+            const labelsRequest = loadCurrentEdmontonNeighbourhoods();
+            void labelsRequest
+              .then((labels) => {
+                if (cancelled) return;
+                removeNeighbourhoodLabels = addCurrentNeighbourhoodLabelOverlay({
+                  map: mapInstance,
+                  Marker: maplibre.Marker,
+                  labels,
+                });
+              })
+              .catch(() => {
+                // The authoritative labels are contextual. Project data and the
+                // map remain usable if the City endpoint is temporarily offline.
+              });
           } catch {
             if (!cancelled) setMapState("error");
           }
@@ -231,10 +384,49 @@ export function NeighbourhoodActivityMap({
         const handleError = () => {
           if (!loaded && !cancelled) setMapState("error");
         };
+        const handleZoom = () => {
+          const showingProjects = mapInstance.getZoom() >= PROJECT_DETAIL_ZOOM;
+          mapContainer.dataset.mapDetail = showingProjects ? "projects" : "neighbourhoods";
+          for (const wrapper of markerWrappers.values()) {
+            wrapper.style.opacity = showingProjects ? "0" : "1";
+            wrapper.style.pointerEvents = showingProjects ? "none" : "auto";
+          }
+        };
+        const handleProjectClick = (event: MapLayerMouseEvent) => {
+          const feature = mapInstance.queryRenderedFeatures(event.point, {
+            layers: [ACTIVITY_PROJECT_LAYER_ID],
+          })[0];
+          const projectId = feature?.properties?.projectId;
+          if (typeof projectId !== "string") return;
+          const project = projectsById.get(projectId);
+          if (!project) return;
+          selectArea(project.neighbourhoodId, false);
+          mapInstance.setPaintProperty(ACTIVITY_PROJECT_LAYER_ID, "circle-color", [
+            "case",
+            ["==", ["get", "projectId"], projectId],
+            "#c8752a",
+            "#176473",
+          ]);
+          popup
+            ?.setLngLat([project.longitude, project.latitude])
+            .setDOMContent(projectPopupContent(project))
+            .addTo(mapInstance);
+        };
+        const handlePointerEnter = () => {
+          mapInstance.getCanvas().style.cursor = "pointer";
+        };
+        const handlePointerLeave = () => {
+          mapInstance.getCanvas().style.cursor = "";
+        };
 
         mapInstance.on("style.load", handleStyleLoad);
         mapInstance.on("error", handleError);
+        mapInstance.on("zoom", handleZoom);
+        mapInstance.on("click", ACTIVITY_PROJECT_LAYER_ID, handleProjectClick);
+        mapInstance.on("mouseenter", ACTIVITY_PROJECT_LAYER_ID, handlePointerEnter);
+        mapInstance.on("mouseleave", ACTIVITY_PROJECT_LAYER_ID, handlePointerLeave);
         if (mapInstance.isStyleLoaded()) handleStyleLoad();
+        handleZoom();
       } catch (error) {
         if (cancelled) return;
         setMapState(
@@ -249,17 +441,33 @@ export function NeighbourhoodActivityMap({
 
     return () => {
       cancelled = true;
+      removeNeighbourhoodLabels?.();
+      popup?.remove();
       for (const marker of mapMarkers) marker.remove();
       markerElements.clear();
+      markerWrappers.clear();
       markerElementsRef.current = new Map();
       map?.remove();
       mapRef.current = null;
     };
-  }, [mapStyleUrl, mapTileUrl, mappedAreas, maximumCount, periodPhrase, selectArea]);
+  }, [
+    mapStyleUrl,
+    mapTileUrl,
+    mappedAreas,
+    maximumCount,
+    periodPhrase,
+    projectFeatureCollection,
+    projectsById,
+    selectArea,
+  ]);
 
   const selectedProjectHref = selected
     ? (() => {
-        const params = new URLSearchParams({ neighbourhood: selected.cityId });
+        const params = new URLSearchParams({
+          neighbourhood: selected.cityId,
+          view: "split",
+          scope: "core",
+        });
         if (range.from) {
           params.set("from", range.from);
         }
@@ -281,9 +489,9 @@ export function NeighbourhoodActivityMap({
           <h2 className="m-0 text-base font-bold text-[var(--spruce)]">Project activity map</h2>
           <p className="mt-1 mb-0 text-xs leading-5 text-[var(--muted)]">
             Up to ten leading neighbourhoods inside Anthony Henday and between Yellowhead Trail and
-            Whitemud Drive are shown. Each circle is placed at the average mapped-project location;
-            circles do not represent neighbourhood boundaries. Bubble labels use the tracker&apos;s
-            City-synchronized neighbourhood names; basemap labels are context only.
+            Whitemud Drive are shown. Select a count bubble or zoom in to reveal individual projects
+            at their recorded City coordinates. Neighbourhood labels come from the City&apos;s
+            current centroid dataset; aggregate Greater-area labels are omitted.
           </p>
         </div>
         <div className="inline-flex items-center gap-2 rounded-full bg-[var(--teal-soft)] px-3 py-1.5 text-[11px] font-semibold text-[var(--teal)]">

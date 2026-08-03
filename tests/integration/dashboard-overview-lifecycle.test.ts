@@ -386,6 +386,15 @@ describe.skipIf(!hasTestDatabase)("dashboard lifecycle overview", () => {
     expect(overview.neighbourhoodBreakdown).not.toContainEqual(
       expect.objectContaining({ cityId: outsideCityNeighbourhoodId }),
     );
+    expect(overview.mapProjects).toContainEqual(
+      expect.objectContaining({
+        id: projectId,
+        address: "98765 TEST AVE NW",
+        latitude: 53.552234,
+        longitude: -113.540089,
+      }),
+    );
+    expect(overview.mapProjects.map(({ id }) => id)).not.toContain(outsideProjectId);
     expect(overview.highConfidenceProjects.map(({ id }) => id)).toContain(projectId);
     expect(overview.highConfidenceProjects.map(({ id }) => id)).not.toContain(outsideProjectId);
     expect(overview.recentConstruction.map(({ id }) => id)).toContain(projectId);

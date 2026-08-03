@@ -19,7 +19,7 @@ describe("self-hosted foundation", () => {
     ]);
 
     expect(environmentExample).toMatch(
-      /^MAP_TILE_URL=https:\/\/tile\.openstreetmap\.org\/\{z\}\/\{x\}\/\{y\}\.png$/m,
+      /^MAP_TILE_URL=https:\/\/vector\.openstreetmap\.org\/shortbread_v1\/\{z\}\/\{x\}\/\{y\}\.mvt$/m,
     );
     expect(environmentExample).toMatch(/^MAP_STYLE_URL=$/m);
 

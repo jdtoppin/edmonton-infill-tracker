@@ -9,6 +9,7 @@ updates:
       time: "09:00"
       timezone: America/Edmonton
     open-pull-requests-limit: 10
+    rebase-strategy: auto
     groups:
       production-dependencies:
         dependency-type: production
@@ -22,28 +23,29 @@ updates:
           - patch
     commit-message:
       prefix: "chore(deps)"
+    ignore:
+      - dependency-name: "*"
+        update-types:
+          - version-update:semver-major
 
   - package-ecosystem: github-actions
     directory: /
     schedule:
-      interval: monthly
+      interval: weekly
+      day: monday
+      time: "09:30"
+      timezone: America/Edmonton
     groups:
       actions:
         patterns:
           - "*"
     commit-message:
       prefix: "chore(ci)"
+    ignore:
+      - dependency-name: "*"
+        update-types:
+          - version-update:semver-major
 
-  - package-ecosystem: docker
-    directory: /
-    schedule:
-      interval: monthly
-    commit-message:
-      prefix: "chore(docker)"
-
-  - package-ecosystem: docker
-    directory: /deploy/postgis
-    schedule:
-      interval: monthly
-    commit-message:
-      prefix: "chore(database)"
+# Node.js, Caddy, and PostgreSQL are pinned in several coordinated deployment
+# files. The support-component workflow updates those same-major pins together,
+# runs full CI, and opens a human-reviewed PR without deploying it.

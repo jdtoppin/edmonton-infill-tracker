@@ -107,6 +107,11 @@ export default async function UpdatesPage() {
                 trees or unsafe ports/Funnel state, creates and verifies a database backup,
                 fast-forwards Git, rebuilds, migrates, restarts, and checks health.
               </p>
+              <p className="mt-2 text-xs leading-5 text-[var(--muted)]">
+                Reviewed releases include CI-tested Node.js, Caddy, and PostgreSQL image updates;
+                this command rebuilds and pulls those pinned versions without automatically
+                deploying an unreviewed dependency change.
+              </p>
             </div>
           </div>
           <div className="mt-5">

@@ -1,31 +1,47 @@
 import { describe, expect, it } from "vitest";
 import {
-  DEFAULT_MAP_RASTER_PAINT,
   DEFAULT_MAP_TILE_URL,
   EDMONTON_COORDINATE_LIMITS,
+  LEGACY_DEFAULT_MAP_TILE_URL,
   resolveMapStyle,
 } from "../../components/maps/map-style";
 
 describe("map style configuration", () => {
-  it("builds a token-free light raster style with visible attribution", () => {
+  it("builds a token-free flat vector style with visible attribution and no inherited place labels", () => {
     const style = resolveMapStyle({});
 
     expect(style).toMatchObject({
       version: 8,
       sources: {
-        "openstreetmap-tiles": {
-          type: "raster",
+        "openstreetmap-shortbread": {
+          type: "vector",
           tiles: [DEFAULT_MAP_TILE_URL],
           attribution: expect.stringContaining("OpenStreetMap contributors"),
         },
       },
-      layers: [
-        {
-          id: "openstreetmap-basemap",
-          type: "raster",
-          paint: DEFAULT_MAP_RASTER_PAINT,
+    });
+    expect(style).toEqual(
+      expect.objectContaining({
+        layers: expect.arrayContaining([
+          expect.objectContaining({ id: "flat-background", type: "background" }),
+          expect.objectContaining({ id: "local-streets", type: "line" }),
+        ]),
+      }),
+    );
+    expect(JSON.stringify(style)).not.toContain("place_labels");
+  });
+
+  it("upgrades the former labelled default to the flat label-free base", () => {
+    const style = resolveMapStyle({ mapTileUrl: LEGACY_DEFAULT_MAP_TILE_URL });
+
+    expect(style).toMatchObject({
+      sources: {
+        "openstreetmap-shortbread": {
+          type: "vector",
+          tiles: [DEFAULT_MAP_TILE_URL],
+          attribution: expect.stringContaining("OpenStreetMap contributors"),
         },
-      ],
+      },
     });
   });
 

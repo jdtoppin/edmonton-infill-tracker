@@ -1,6 +1,6 @@
 # Implementation status
 
-Updated: 2026-08-02
+Updated: 2026-08-03
 
 ## Phase 1 — Foundation
 
@@ -60,7 +60,7 @@ Updated: 2026-08-02
 
 - [x] Add a guided, loopback-only Mac installer and guarded update/import/backup commands.
 - [x] Complete ingestion-aware database, scheduler, job-lease, quarantine, matching, and review health views.
-- [ ] Run security, dependency, and accessibility reviews.
+- [ ] Complete the accessibility review; dependency audit and recurring support-image security gates are in CI.
 - [ ] Perform a backup-and-restore drill on the Mac mini.
 - [x] Validate loopback Caddy and private Tailscale HTTPS deployment on the target Mac mini.
 - [ ] Document the first reviewed release and safe update outcome.

@@ -99,6 +99,11 @@ describe("project read-model presentation", () => {
         (area) => area.latitude !== null && area.longitude !== null,
       ),
     ).toBe(true);
+    expect(dashboard.mapProjects).toHaveLength(1);
+    expect(dashboard.mapProjects[0]).toMatchObject({
+      id: "preview-westmount-detached",
+      neighbourhoodId: "preview-westmount",
+    });
     expect(dashboard.warnings).toContainEqual(
       expect.objectContaining({ code: "PREVIEW_DATA", severity: "info" }),
     );
