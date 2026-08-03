@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { BarChart3, BellRing, Building2, ShieldCheck } from "lucide-react";
+import { BrandMark } from "@/components/workspace/brand";
 import { LoginForm } from "./login-form";
 
 export const metadata: Metadata = {
@@ -13,11 +14,7 @@ export default function LoginPage() {
       <section className="login-story">
         <div className="login-story-inner">
           <div className="login-brand">
-            <div className="brand-mark" aria-hidden="true">
-              <span />
-              <span />
-              <span />
-            </div>
+            <BrandMark />
             <div>
               <strong>Edmonton</strong>
               <span>Infill Tracker</span>
@@ -86,11 +83,7 @@ export default function LoginPage() {
       <section className="login-form-side">
         <div className="login-form-wrap">
           <div className="mobile-login-brand">
-            <div className="brand-mark" aria-hidden="true">
-              <span />
-              <span />
-              <span />
-            </div>
+            <BrandMark />
             <strong>Edmonton Infill Tracker</strong>
           </div>
           <div className="login-form-heading">
