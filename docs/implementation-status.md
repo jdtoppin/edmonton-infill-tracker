@@ -42,7 +42,7 @@ Updated: 2026-08-02
 
 - [x] Create the responsive product visual system and dashboard shell.
 - [x] Connect dashboard metrics, lifecycle milestones, import state, and warnings to live records.
-- [x] Build Mapbox map/list/split exploration with URL-backed filters and missing-token/coordinate fallbacks.
+- [x] Build MapLibre map/list/split exploration with URL-backed filters, a real geographic basemap, clustering, and an explicit unavailable state.
 - [x] Build sortable/paginated project results and formula-safe filtered CSV export.
 - [x] Build project detail, evidence explanation, occupancy follow-up, source timeline, and admin-only raw view.
 - [x] Build admin import, failed-record, review/correction, rules-preview, and evidence-backed health workflows.

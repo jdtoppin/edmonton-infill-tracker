@@ -182,16 +182,21 @@ export default async function ProjectsPage({
             {filters.view === "map" && (
               <ProjectMap
                 markers={markers}
-                mapboxToken={process.env.NEXT_PUBLIC_MAPBOX_TOKEN}
-                mapStyleUrl={process.env.MAPBOX_STYLE_URL}
+                mapStyleUrl={process.env.MAP_STYLE_URL}
+                mapTileUrl={process.env.MAP_TILE_URL}
+                accessibleListHref={`/projects?${projectFiltersToSearchParams({
+                  ...filters,
+                  view: "list",
+                  page: 1,
+                }).toString()}`}
                 showList={false}
               />
             )}
             {filters.view === "split" && (
               <ProjectMap
                 markers={markers}
-                mapboxToken={process.env.NEXT_PUBLIC_MAPBOX_TOKEN}
-                mapStyleUrl={process.env.MAPBOX_STYLE_URL}
+                mapStyleUrl={process.env.MAP_STYLE_URL}
+                mapTileUrl={process.env.MAP_TILE_URL}
                 showList
               />
             )}

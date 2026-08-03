@@ -1,7 +1,12 @@
 import path from "node:path";
+import { Buffer } from "node:buffer";
 import { expect, test, type Page } from "@playwright/test";
 
 const userStorageState = path.resolve("playwright/.auth/user.json");
+const transparentPng = Buffer.from(
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
+  "base64",
+);
 
 async function signIn(page: Page, role: "admin" | "user" = "admin") {
   await page.goto("/login");
@@ -31,6 +36,20 @@ test("@responsive shows the live permit intelligence overview", async ({ page })
   await expect(page.getByText("New projects detected", { exact: true })).toBeVisible();
   await expect(page.getByRole("heading", { name: "High-confidence projects" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Project activity map" })).toBeVisible();
+  const overviewMap = page.locator("[data-overview-map]");
+  await expect(overviewMap).toBeVisible();
+  await expect(overviewMap).toHaveAttribute(
+    "data-map-state",
+    /^(loading|ready|empty|unsupported|error)$/,
+  );
+  await expect(
+    overviewMap.getByRole("region", {
+      name: "Geographic map of project counts by Edmonton neighbourhood",
+    }),
+  ).toBeVisible();
+  await expect(
+    overviewMap.getByText("circles do not represent neighbourhood boundaries", { exact: false }),
+  ).toBeVisible();
   const exploreLink = page.getByRole("main").getByRole("link", { name: "Explore projects" });
   await expect(exploreLink).toBeVisible();
   expect(await exploreLink.evaluate((element) => getComputedStyle(element).color)).toBe(
@@ -41,6 +60,24 @@ test("@responsive shows the live permit intelligence overview", async ({ page })
     "aria-pressed",
     "true",
   );
+});
+
+test("renders the token-free geographic basemap with visible attribution", async ({ page }) => {
+  await page.route("https://tile.openstreetmap.org/**", (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: "image/png",
+      headers: { "cache-control": "public, max-age=3600" },
+      body: transparentPng,
+    }),
+  );
+
+  await page.goto("/");
+  const overviewMap = page.locator("[data-overview-map]");
+  await expect(overviewMap).toHaveAttribute("data-map-state", "ready", { timeout: 15_000 });
+  await expect(
+    overviewMap.getByRole("link", { name: /OpenStreetMap contributors/i }),
+  ).toBeVisible();
 });
 
 test("@responsive filters projects and opens a normalized permit timeline", async ({ page }) => {
@@ -78,6 +115,10 @@ test("keeps list, map, and split views distinct and bounds the map list", async 
   await expect(page.locator("[data-project-map]")).toHaveCount(1);
   await expect(page.locator("[data-project-map-list]")).toHaveCount(0);
   await expect(page.locator("table")).toHaveCount(0);
+  await expect(page.getByRole("link", { name: "Browse all in List view" })).toHaveAttribute(
+    "href",
+    /view=list/,
+  );
 
   await page.goto("/projects?q=999&view=split");
   await expect(page.locator("[data-project-map]")).toHaveCount(1);

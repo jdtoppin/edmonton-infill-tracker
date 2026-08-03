@@ -10,6 +10,25 @@ describe("self-hosted foundation", () => {
     expect(compose).toContain("/api/health");
   });
 
+  it("keeps the browser basemap token-free and runtime-configurable", async () => {
+    const [environmentExample, compose, dockerfile, continuousIntegration] = await Promise.all([
+      readFile(new URL("../../.env.example", import.meta.url), "utf8"),
+      readFile(new URL("../../docker-compose.yml", import.meta.url), "utf8"),
+      readFile(new URL("../../Dockerfile", import.meta.url), "utf8"),
+      readFile(new URL("../../.github/workflows/ci.yml", import.meta.url), "utf8"),
+    ]);
+
+    expect(environmentExample).toMatch(
+      /^MAP_TILE_URL=https:\/\/tile\.openstreetmap\.org\/\{z\}\/\{x\}\/\{y\}\.png$/m,
+    );
+    expect(environmentExample).toMatch(/^MAP_STYLE_URL=$/m);
+
+    for (const file of [environmentExample, compose, dockerfile, continuousIntegration]) {
+      expect(file).not.toContain("NEXT_PUBLIC_MAPBOX_TOKEN");
+      expect(file).not.toContain("mapbox://");
+    }
+  });
+
   it("keeps application updates behind the guarded host command", async () => {
     const [compose, dockerfile, operator, installer, updateStatus, updatePage, updateCommand] =
       await Promise.all([
