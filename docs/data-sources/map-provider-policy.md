@@ -6,7 +6,9 @@ Edmonton Infill Tracker renders geographic data with MapLibre GL JS. By default 
 https://tile.openstreetmap.org/{z}/{x}/{y}.png
 ```
 
-This default needs no API key or account. The map must keep the visible `© OpenStreetMap contributors` attribution and follow the [OpenStreetMap tile usage policy](https://operations.osmfoundation.org/policies/tiles/). The application requests tiles for ordinary interactive viewing only; it must not prefetch, bulk-download, scrape, or offer offline tile packs from this service.
+MapLibre applies a restrained light/desaturated paint treatment to the default raster layer so it better supports the tracker markers without changing providers. The source needs no API key or account. The map must keep the visible `© OpenStreetMap contributors` attribution and follow the [OpenStreetMap tile usage policy](https://operations.osmfoundation.org/policies/tiles/). The application requests tiles for ordinary interactive viewing only; it must not prefetch, bulk-download, scrape, or offer offline tile packs from this service.
+
+The visual treatment does **not** make labels baked into the basemap authoritative. Application neighbourhood names are synchronized by stable neighbourhood number from the City of Edmonton's current open-data source. Dashboard bubbles, project details, filters, and lists use those City names; basemap labels provide geographic context only.
 
 ## Privacy boundary
 
@@ -14,9 +16,11 @@ The basemap is internet-backed even when the application itself runs privately o
 
 The provider can see ordinary web request metadata, such as the viewer's public IP address, browser user agent, and referrer. Tile coordinates also reveal the map area and zoom level being viewed. The application does not append permit records, project markers, street addresses, user identities, session cookies, or application credentials to tile requests.
 
+For a stricter local-only map boundary, replace the public provider with reviewed, locally hosted MapLibre assets and an Edmonton-scoped tile package. Do not bulk-download the public OpenStreetMap tile service to create that package.
+
 ## Configuration
 
-- `MAP_TILE_URL` selects the raster tile URL template. The checked-in default is the OpenStreetMap URL above.
+- `MAP_TILE_URL` selects the raster tile URL template. The checked-in default is the OpenStreetMap URL above. The light paint treatment is applied only to that exact default, so a custom raster provider retains its intended colours.
 - `MAP_STYLE_URL` optionally selects a complete HTTPS MapLibre-compatible style. When set, it takes precedence over `MAP_TILE_URL`.
 
 Both values are delivered to browser code and are visible to anyone who can use the application. They are not secret-storage fields. Never place a private API key, bearer token, signed credential, internal hostname, or other secret in either value.
@@ -30,4 +34,4 @@ Before changing providers, document and review:
 5. caching, rate limits, availability, and a safe failure state;
 6. whether the provider permits a local, tailnet-only application.
 
-If ordinary interactive use grows beyond the standard OpenStreetMap service's capacity or policy, move to an approved hosted or self-hosted tile provider before increasing traffic.
+If ordinary interactive use grows beyond the standard OpenStreetMap service's capacity or policy, move to an approved hosted or self-hosted provider before increasing traffic.

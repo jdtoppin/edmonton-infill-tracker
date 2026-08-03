@@ -48,11 +48,18 @@ function applyMarkerSelection(
 ) {
   for (const [areaId, marker] of markers) {
     const selected = areaId === selectedId;
+    const wrapper = marker.closest<HTMLElement>("[data-neighbourhood-marker]");
+    const label = wrapper?.querySelector<HTMLElement>("[data-neighbourhood-marker-label]");
     marker.setAttribute("aria-pressed", String(selected));
     marker.style.backgroundColor = selected ? "#c8752a" : "#176473";
     marker.style.boxShadow = selected
       ? "0 0 0 4px rgba(255,255,255,0.75), 0 5px 14px rgba(23,48,51,0.32)"
       : "0 5px 14px rgba(23,48,51,0.28)";
+    if (wrapper) {
+      wrapper.dataset.selected = String(selected);
+      wrapper.style.zIndex = selected ? "2" : "1";
+    }
+    if (label) label.style.opacity = selected ? "1" : "";
   }
 }
 
@@ -166,15 +173,19 @@ export function NeighbourhoodActivityMap({
         mapRef.current = mapInstance;
         mapInstance.addControl(new maplibre.NavigationControl({ showCompass: false }), "top-right");
 
-        const handleLoad = () => {
-          if (cancelled) return;
+        const handleStyleLoad = () => {
+          if (cancelled || loaded) return;
           try {
             const bounds = new maplibre.LngLatBounds();
             for (const area of mappedAreas) {
+              const markerWrapper = document.createElement("div");
+              markerWrapper.className = "group relative grid place-items-center";
+              markerWrapper.dataset.neighbourhoodMarker = area.id;
+
               const markerButton = document.createElement("button");
               markerButton.type = "button";
               markerButton.className =
-                "grid place-items-center rounded-full border-[3px] border-white text-xs font-extrabold text-white transition-transform outline-none hover:scale-110 focus-visible:ring-2 focus-visible:ring-[var(--spruce)] focus-visible:ring-offset-2";
+                "grid place-items-center rounded-full border-[3px] border-white text-xs font-extrabold text-white transition-[background-color,box-shadow,filter] outline-none hover:brightness-110 focus-visible:ring-2 focus-visible:ring-[var(--spruce)] focus-visible:ring-offset-2";
               const diameter = markerDiameter(area.count, maximumCount);
               markerButton.style.width = `${diameter}px`;
               markerButton.style.height = `${diameter}px`;
@@ -185,7 +196,14 @@ export function NeighbourhoodActivityMap({
               );
               markerButton.addEventListener("click", () => selectArea(area.id, false));
 
-              const marker = new maplibre.Marker({ element: markerButton, anchor: "center" })
+              const markerLabel = document.createElement("span");
+              markerLabel.className =
+                "pointer-events-none absolute top-[calc(100%+6px)] max-w-44 whitespace-nowrap rounded-md border border-white/80 bg-white/95 px-2 py-1 text-[11px] font-bold text-[var(--spruce)] opacity-0 shadow-sm transition-opacity group-hover:opacity-100 group-focus-within:opacity-100";
+              markerLabel.dataset.neighbourhoodMarkerLabel = "";
+              markerLabel.textContent = area.name;
+              markerWrapper.append(markerButton, markerLabel);
+
+              const marker = new maplibre.Marker({ element: markerWrapper, anchor: "center" })
                 .setLngLat([area.longitude, area.latitude])
                 .addTo(mapInstance);
               mapMarkers.push(marker);
@@ -214,8 +232,9 @@ export function NeighbourhoodActivityMap({
           if (!loaded && !cancelled) setMapState("error");
         };
 
-        mapInstance.on("load", handleLoad);
+        mapInstance.on("style.load", handleStyleLoad);
         mapInstance.on("error", handleError);
+        if (mapInstance.isStyleLoaded()) handleStyleLoad();
       } catch (error) {
         if (cancelled) return;
         setMapState(
@@ -263,7 +282,8 @@ export function NeighbourhoodActivityMap({
           <p className="mt-1 mb-0 text-xs leading-5 text-[var(--muted)]">
             Up to ten leading neighbourhoods inside Anthony Henday and between Yellowhead Trail and
             Whitemud Drive are shown. Each circle is placed at the average mapped-project location;
-            circles do not represent neighbourhood boundaries.
+            circles do not represent neighbourhood boundaries. Bubble labels use the tracker&apos;s
+            City-synchronized neighbourhood names; basemap labels are context only.
           </p>
         </div>
         <div className="inline-flex items-center gap-2 rounded-full bg-[var(--teal-soft)] px-3 py-1.5 text-[11px] font-semibold text-[var(--teal)]">

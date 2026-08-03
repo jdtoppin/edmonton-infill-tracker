@@ -302,8 +302,8 @@ export function ProjectMap({
         mapInstance.addControl(new maplibre.NavigationControl({ showCompass: false }), "top-right");
 
         let loaded = false;
-        const handleLoad = () => {
-          if (cancelled) return;
+        const handleStyleLoad = () => {
+          if (cancelled || loaded) return;
           try {
             mapInstance.addSource(MAP_SOURCE_ID, {
               type: "geojson",
@@ -428,7 +428,7 @@ export function ProjectMap({
           mapInstance.getCanvas().style.cursor = "";
         };
 
-        mapInstance.on("load", handleLoad);
+        mapInstance.on("style.load", handleStyleLoad);
         mapInstance.on("error", handleError);
         mapInstance.on("click", CLUSTER_LAYER_ID, handleClusterClick);
         mapInstance.on("click", PROJECT_LAYER_ID, handleProjectClick);
@@ -436,6 +436,7 @@ export function ProjectMap({
         mapInstance.on("mouseenter", PROJECT_LAYER_ID, handlePointerEnter);
         mapInstance.on("mouseleave", CLUSTER_LAYER_ID, handlePointerLeave);
         mapInstance.on("mouseleave", PROJECT_LAYER_ID, handlePointerLeave);
+        if (mapInstance.isStyleLoaded()) handleStyleLoad();
       } catch {
         if (!cancelled) setRuntimeStatus("error");
       }

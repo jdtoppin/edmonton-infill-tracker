@@ -5,7 +5,8 @@ import { AdminPagination } from "@/components/admin/admin-pagination";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { PageHeading } from "@/components/workspace/page-header";
-import { ReviewStatus, type Prisma } from "@/src/generated/prisma/client";
+import type { Prisma } from "@/src/generated/prisma/client";
+import { ReviewStatus } from "@/src/generated/prisma/enums";
 import { requireAdmin } from "@/src/lib/auth";
 import { getDb } from "@/src/lib/db";
 import {

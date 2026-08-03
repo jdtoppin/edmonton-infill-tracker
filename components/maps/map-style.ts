@@ -12,6 +12,14 @@ export const EDMONTON_COORDINATE_LIMITS = {
 } as const;
 
 export const DEFAULT_MAP_TILE_URL = "https://tile.openstreetmap.org/{z}/{x}/{y}.png";
+export const DEFAULT_MAP_RASTER_PAINT = {
+  "raster-saturation": -0.45,
+  "raster-contrast": -0.08,
+  "raster-brightness-min": 0.08,
+  "raster-brightness-max": 0.96,
+  "raster-opacity": 0.94,
+  "raster-fade-duration": 100,
+} as const;
 
 type MapStyle = NonNullable<MapOptions["style"]>;
 
@@ -25,7 +33,10 @@ export function resolveMapStyle({
   const configuredStyle = mapStyleUrl?.trim();
   if (configuredStyle) return configuredStyle;
 
-  const tileUrl = mapTileUrl?.trim() || DEFAULT_MAP_TILE_URL;
+  const configuredTile = mapTileUrl?.trim();
+  const tileUrl = configuredTile || DEFAULT_MAP_TILE_URL;
+  const usesDefaultTiles = !configuredTile || configuredTile === DEFAULT_MAP_TILE_URL;
+
   return {
     version: 8,
     sources: {
@@ -44,6 +55,7 @@ export function resolveMapStyle({
         type: "raster",
         source: "openstreetmap-tiles",
         minzoom: 0,
+        ...(usesDefaultTiles ? { paint: DEFAULT_MAP_RASTER_PAINT } : {}),
       },
     ],
   };
