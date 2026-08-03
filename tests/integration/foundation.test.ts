@@ -45,7 +45,22 @@ describe("self-hosted foundation", () => {
     expect(compose).not.toContain("/var/run/docker.sock");
     expect(dockerfile).toContain('ARG APP_BUILD_SHA="unknown"');
     expect(operator).toContain('APP_BUILD_SHA="$app_build_sha" docker compose build --pull');
-    expect(operator).not.toContain("docker compose pull caddy");
+    // Every Compose image in this deployment is built from source. A service-level pull tries
+    // Docker Hub for local tags such as `edmonton-infill-caddy` and aborts the update.
+    expect(operator).not.toMatch(/^\s*docker compose pull(?:\s|$)/m);
+    expect(operator).toContain('sh -n "$script_dir/infill"');
+    expect(operator).toContain('prepare_operator_update_resume "$app_build_sha"');
+    expect(operator).toContain(
+      'exec sh "$script_dir/infill" __update-after-fast-forward "$app_build_sha"',
+    );
+    expect(operator).toContain('resume_operator_update_lock "$1"');
+    expect(operator).toContain('resume_protocol" = "update-resume-v1');
+    expect(operator.indexOf("git merge --ff-only FETCH_HEAD")).toBeLessThan(
+      operator.indexOf('exec sh "$script_dir/infill" __update-after-fast-forward'),
+    );
+    expect(
+      operator.indexOf('exec sh "$script_dir/infill" __update-after-fast-forward'),
+    ).toBeLessThan(operator.indexOf('APP_BUILD_SHA="$app_build_sha" docker compose build --pull'));
     expect(operator).toContain('[ "${#app_build_sha}" -eq 40 ]');
     expect(operator).toContain('""|*[!0-9a-f]*)');
     expect(operator).toContain('checkout_ref" = "refs/heads/main');
