@@ -44,7 +44,7 @@ export default defineConfig(async () => {
 
   return {
     optimizeDeps: {
-      exclude: ["lucide-react"],
+      exclude: ["lucide-react", "maplibre-gl"],
     },
     server: isCodexSeatbeltSandbox
       ? { watch: { useFsEvents: false, usePolling: true } }
