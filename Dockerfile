@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1.7
 
 ARG NODE_VERSION=22.23.2
-ARG NPM_VERSION=11.19.0
+ARG NPM_VERSION=12.0.2
 
 FROM node:${NODE_VERSION}-bookworm-slim AS base
 ARG NPM_VERSION
