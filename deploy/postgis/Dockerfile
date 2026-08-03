@@ -2,7 +2,7 @@
 
 # Building on the official multi-architecture PostgreSQL image avoids x86
 # emulation on Apple Silicon while still installing Debian's PostGIS packages.
-FROM postgres:17.9-bookworm
+FROM postgres:18.4-bookworm
 
 RUN apt-get update \
     && apt-get install --no-install-recommends -y \
