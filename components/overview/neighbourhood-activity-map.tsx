@@ -255,13 +255,15 @@ export function NeighbourhoodActivityMap({
 
       <div className="grid lg:grid-cols-[minmax(0,1.6fr)_minmax(280px,0.65fr)]">
         <section className="relative min-h-[380px] border-r border-[var(--border-soft)] bg-[#e8ebe6]">
-          <div
-            ref={mapContainerRef}
-            className="absolute inset-0"
-            role="region"
-            aria-label="Geographic map of project counts by Edmonton neighbourhood"
-            aria-busy={mapState === "loading"}
-          />
+          <div className="absolute inset-0">
+            <div
+              ref={mapContainerRef}
+              className="h-full w-full"
+              role="region"
+              aria-label="Geographic map of project counts by Edmonton neighbourhood"
+              aria-busy={mapState === "loading"}
+            />
+          </div>
 
           {mapState === "loading" && (
             <div
