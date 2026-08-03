@@ -47,6 +47,10 @@ test("@responsive shows the live permit intelligence overview", async ({ page })
       name: "Geographic map of project counts by Edmonton neighbourhood",
     }),
   ).toBeVisible();
+  const overviewMapRegion = overviewMap.getByRole("region", {
+    name: "Geographic map of project counts by Edmonton neighbourhood",
+  });
+  expect((await overviewMapRegion.boundingBox())?.height).toBeGreaterThanOrEqual(300);
   await expect(
     overviewMap.getByText("circles do not represent neighbourhood boundaries", { exact: false }),
   ).toBeVisible();
@@ -60,6 +64,18 @@ test("@responsive shows the live permit intelligence overview", async ({ page })
     "aria-pressed",
     "true",
   );
+});
+
+test("keeps the overview Explore projects button stationary on hover", async ({ page }) => {
+  await page.goto("/");
+  const exploreLink = page.getByRole("main").getByRole("link", { name: "Explore projects" });
+  await expect(exploreLink).toBeVisible();
+  const exploreLinkBeforeHover = await exploreLink.boundingBox();
+  await exploreLink.hover();
+  await exploreLink.evaluate(async (element) => {
+    await Promise.all(element.getAnimations().map((animation) => animation.finished));
+  });
+  expect(await exploreLink.boundingBox()).toEqual(exploreLinkBeforeHover);
 });
 
 test("renders the token-free geographic basemap with visible attribution", async ({ page }) => {
@@ -113,6 +129,10 @@ test("keeps list, map, and split views distinct and bounds the map list", async 
 
   await page.goto("/projects?q=999&view=map");
   await expect(page.locator("[data-project-map]")).toHaveCount(1);
+  expect(
+    (await page.getByRole("region", { name: "Map of Edmonton infill projects" }).boundingBox())
+      ?.height,
+  ).toBeGreaterThanOrEqual(400);
   await expect(page.locator("[data-project-map-list]")).toHaveCount(0);
   await expect(page.locator("table")).toHaveCount(0);
   await expect(page.getByRole("link", { name: "Browse all in List view" })).toHaveAttribute(

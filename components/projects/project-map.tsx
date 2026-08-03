@@ -480,13 +480,15 @@ export function ProjectMap({
       data-map-state={status}
     >
       <section className="relative min-h-[430px] bg-[#e8ebe6] lg:min-h-[500px]">
-        <div
-          ref={mapContainerRef}
-          className="absolute inset-0"
-          role="region"
-          aria-label="Map of Edmonton infill projects"
-          aria-busy={status === "loading"}
-        />
+        <div className="absolute inset-0">
+          <div
+            ref={mapContainerRef}
+            className="h-full w-full"
+            role="region"
+            aria-label="Map of Edmonton infill projects"
+            aria-busy={status === "loading"}
+          />
+        </div>
 
         {status === "loading" && (
           <div

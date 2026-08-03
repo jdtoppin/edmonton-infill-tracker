@@ -113,7 +113,7 @@ export function OverviewDashboard({
           description="Live City-recorded permit milestones are grouped into projects and ranked by the strength of their evidence."
           actions={
             <Link
-              className="inline-flex min-h-10 items-center gap-2 rounded-lg bg-[var(--teal)] px-4 text-xs font-semibold text-white no-underline shadow-sm transition-[background-color,box-shadow,transform] outline-none hover:-translate-y-px hover:bg-[var(--spruce-soft)] hover:shadow-md focus-visible:ring-2 focus-visible:ring-[var(--teal)] focus-visible:ring-offset-2"
+              className="inline-flex min-h-10 items-center gap-2 rounded-lg bg-[var(--teal)] px-4 text-xs font-semibold text-white no-underline shadow-sm transition-[background-color,box-shadow] outline-none hover:bg-[var(--spruce-soft)] hover:shadow-md focus-visible:ring-2 focus-visible:ring-[var(--teal)] focus-visible:ring-offset-2"
               href="/projects"
             >
               <Search size={15} aria-hidden="true" /> Explore projects
