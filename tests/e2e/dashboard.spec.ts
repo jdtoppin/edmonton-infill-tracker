@@ -31,7 +31,7 @@ test("@responsive shows the live permit intelligence overview", async ({ page })
   await expect(page.getByText("New projects detected", { exact: true })).toBeVisible();
   await expect(page.getByRole("heading", { name: "High-confidence projects" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Project activity map" })).toBeVisible();
-  const exploreLink = page.getByRole("link", { name: "Explore projects" });
+  const exploreLink = page.getByRole("main").getByRole("link", { name: "Explore projects" });
   await expect(exploreLink).toBeVisible();
   expect(await exploreLink.evaluate((element) => getComputedStyle(element).color)).toBe(
     "rgb(255, 255, 255)",
@@ -54,7 +54,11 @@ test("@responsive filters projects and opens a normalized permit timeline", asyn
   expect(await activeListView.evaluate((element) => getComputedStyle(element).color)).toBe(
     "rgb(23, 100, 115)",
   );
-  await expect(page.getByText("Earliest permit", { exact: true }).first()).toBeVisible();
+  const earliestPermitLabel = page
+    .locator("th:visible a, dt:visible")
+    .filter({ hasText: /^Earliest permit$/ })
+    .first();
+  await expect(earliestPermitLabel).toBeVisible();
   const projectLink = page
     .locator('a[href^="/projects/"]:visible')
     .filter({ hasText: "99901" })
