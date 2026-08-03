@@ -14,5 +14,11 @@ export default async function OverviewPage() {
   const preview = !process.env.DATABASE_URL && process.env.AUTH_REQUIRED !== "true";
   if (!preview && process.env.AUTH_REQUIRED === "true") await requireUser("/");
   const data = preview ? getPreviewDashboardOverview() : await getDashboardOverview(await getDb());
-  return <OverviewDashboard data={data} />;
+  return (
+    <OverviewDashboard
+      data={data}
+      mapStyleUrl={process.env.MAP_STYLE_URL}
+      mapTileUrl={process.env.MAP_TILE_URL}
+    />
+  );
 }

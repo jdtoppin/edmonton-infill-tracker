@@ -23,7 +23,6 @@ env:
   SEED_ADMIN_PASSWORD: ci-admin-password-not-for-production
   SEED_USER_EMAIL: user@example.test
   SEED_USER_PASSWORD: ci-user-password-not-for-production
-  NEXT_PUBLIC_MAPBOX_TOKEN: pk.ci-placeholder
 
 jobs:
   quality:
@@ -246,7 +245,6 @@ jobs:
         run: >-
           docker build
           --target runtime
-          --build-arg NEXT_PUBLIC_MAPBOX_TOKEN="$NEXT_PUBLIC_MAPBOX_TOKEN"
           --build-arg APP_BUILD_SHA="$GITHUB_SHA"
           --tag edmonton-infill-tracker:ci
           .

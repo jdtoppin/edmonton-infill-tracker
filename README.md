@@ -2,7 +2,7 @@
 
 Edmonton Infill Tracker turns City of Edmonton permit records into address-level project timelines, confidence-ranked residential infill signals, and neighbourhood watchlists.
 
-Phases 1 through 4 are implemented: the repository has a responsive authenticated workspace, strict TypeScript, a full Prisma/PostGIS model and migrations, a guarded City permit-import pipeline, durable address-level project timelines, live overview metrics, URL-filtered project exploration, Mapbox/list views, filtered CSV, project evidence, and audited administrator operations. The hosted no-database product preview is explicitly labelled and synthetic; the Mac mini never silently substitutes preview records for its private PostgreSQL data.
+Phases 1 through 4 are implemented: the repository has a responsive authenticated workspace, strict TypeScript, a full Prisma/PostGIS model and migrations, a guarded City permit-import pipeline, durable address-level project timelines, live overview metrics, URL-filtered project exploration, real-basemap MapLibre/list views, filtered CSV, project evidence, and audited administrator operations. The hosted no-database product preview is explicitly labelled and synthetic; the Mac mini never silently substitutes preview records for its private PostgreSQL data.
 
 ## Quick start
 
@@ -67,7 +67,8 @@ flowchart LR
   A --> E["Edmonton Socrata API"]
   K --> P
   K --> N["Email / optional Pushover"]
-  W --> M["Mapbox map client"]
+  W --> M["MapLibre map client"]
+  M --> O["OpenStreetMap raster tiles"]
 ```
 
 - **Web app:** Next.js App Router, React, strict TypeScript, Tailwind CSS, source-owned shadcn-style components, server-side live read models, and progressively enhanced URL filters.
@@ -88,7 +89,7 @@ The app uses the Next.js programming model without depending on Vercel services.
 app/                       App Router pages and server routes
 components/ui/             Reusable shadcn-style UI primitives
 components/workspace/      Authenticated, role-aware responsive shell
-components/projects/       Filters, result table, accessible Mapbox map, and timeline
+components/projects/       Filters, result table, accessible MapLibre map, and timeline
 components/admin/          Import, review, and update controls
 src/domain/                Pure matching, classification, and alert rules
 src/lib/                   Database, auth, logging, and request security
@@ -158,13 +159,13 @@ Copy `.env.example` to `.env`. Never commit the resulting file.
 | Database          | `DATABASE_URL`, `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD`                            |
 | Edmonton API      | `EDMONTON_SOCRATA_BASE_URL`, both dataset IDs, `SOCRATA_APP_TOKEN`, paging/retry/rate settings |
 | Classification    | `INFILL_HIGH_VALUE_THRESHOLD`                                                                  |
-| Map               | `NEXT_PUBLIC_MAPBOX_TOKEN`, `MAPBOX_STYLE_URL`                                                 |
+| Map               | `MAP_TILE_URL`, optional `MAP_STYLE_URL`                                                       |
 | Email             | SMTP host, port, username, password, and sender                                                |
 | Optional services | Pushover credentials and `SENTRY_DSN`                                                          |
 | Processes         | Worker and scheduler intervals                                                                 |
 | Hosting           | Docker image tag, loopback bind address, Caddy address, local ports, Tailscale Serve port      |
 
-Only variables explicitly prefixed `NEXT_PUBLIC_` may reach browser code. All credentials stay server-side.
+The two map provider URLs reach browser code because each viewer's browser fetches the basemap. They are public configuration, not secret storage; never put credentials in either value. All application credentials stay server-side.
 
 ## Useful commands
 
@@ -192,7 +193,7 @@ npm run import:backfill -- --from=2026-01-01 --to=2026-01-31 --dataset=all
 1. **Foundation:** repository/tooling, PostGIS schema, seed, authentication, product shell, tests, Docker, CI, and operator docs.
 2. **Permit ingestion:** provider contract, Edmonton Socrata adapters, pagination/retry/rate limiting, raw storage, incremental/backfill imports, and summaries.
 3. **Project intelligence:** address matching, project timelines, configurable classification/confidence, and manual review controls.
-4. **User interface:** live dashboard, Mapbox explore view, projects table/detail, filters, CSV export, responsive flows, administrator operations, logout, and safe application-update status.
+4. **User interface:** live dashboard, MapLibre explore view, projects table/detail, filters, CSV export, responsive flows, administrator operations, logout, and safe application-update status.
 5. **Alerts:** saved-search UI, event matching, deduplicated daily email, history, and future Pushover hooks.
 6. **Production readiness:** full health/data-quality operations, security/accessibility review, restore drill, and release process.
 
@@ -205,8 +206,9 @@ See [implementation status](docs/implementation-status.md) for the live checklis
 - PostgreSQL is isolated on a private production Docker network. Expose only Caddy, and use HTTPS before access over untrusted networks.
 - The app does not treat a confidence score as fact. Every score stores structured evidence and the UI must use qualified wording.
 - City datasets are provided without warranty and can change. Preserve source timestamps, raw payloads, and attribution; review the [City of Edmonton Open Data licence](https://data.edmonton.ca/stories/s/City-of-Edmonton-Open-Data-Terms-of-Use/msh8-if28/) before distribution.
-- Confirm Mapbox terms for the selected plan. Do not automate market or social sources until an official API or connector passes the [provider audit](docs/data-sources/market-provider-policy.md).
-- Treat `NEXT_PUBLIC_MAPBOX_TOKEN` as browser-visible: use a minimum-scope public token restricted to the private application URL. Never place a secret Mapbox token in that variable.
+- The default MapLibre basemap uses OpenStreetMap's standard raster tile service without an API key. Keep the required attribution visible, request only tiles needed for the interactive viewport, and follow the [OpenStreetMap tile usage policy](https://operations.osmfoundation.org/policies/tiles/).
+- Map tile requests go directly from each viewer's browser to the configured provider. They contain tile coordinates and ordinary web request metadata, not permit records, project addresses, login data, or application credentials. See the [map provider policy](docs/data-sources/map-provider-policy.md) before changing providers.
+- Do not automate market or social sources until an official API or connector passes the [market provider audit](docs/data-sources/market-provider-policy.md).
 - Do not include production addresses, user emails, raw records, tokens, or `.env` values in fixtures, issues, screenshots, or logs.
 
 ## Operations and contribution docs

@@ -172,8 +172,8 @@ export default async function ProjectDetailPage({
               </div>
               <ProjectMap
                 markers={[marker]}
-                mapboxToken={process.env.NEXT_PUBLIC_MAPBOX_TOKEN}
-                mapStyleUrl={process.env.MAPBOX_STYLE_URL}
+                mapStyleUrl={process.env.MAP_STYLE_URL}
+                mapTileUrl={process.env.MAP_TILE_URL}
                 initialSelectedId={project.id}
                 showList={false}
                 className="min-h-[390px]"

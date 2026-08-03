@@ -1,0 +1,41 @@
+import { describe, expect, it } from "vitest";
+import {
+  DEFAULT_MAP_TILE_URL,
+  EDMONTON_COORDINATE_LIMITS,
+  resolveMapStyle,
+} from "../../components/maps/map-style";
+
+describe("map style configuration", () => {
+  it("builds a token-free OpenStreetMap raster style with visible attribution", () => {
+    const style = resolveMapStyle({});
+
+    expect(style).toMatchObject({
+      version: 8,
+      sources: {
+        "openstreetmap-tiles": {
+          type: "raster",
+          tiles: [DEFAULT_MAP_TILE_URL],
+          attribution: expect.stringContaining("OpenStreetMap contributors"),
+        },
+      },
+      layers: [{ id: "openstreetmap-basemap", type: "raster" }],
+    });
+  });
+
+  it("lets an audited complete style override the raster tile template", () => {
+    expect(
+      resolveMapStyle({
+        mapStyleUrl: "https://maps.example.test/style.json",
+        mapTileUrl: "https://tiles.example.test/{z}/{x}/{y}.png",
+      }),
+    ).toBe("https://maps.example.test/style.json");
+  });
+
+  it("uses generous Edmonton sanity limits that contain the city centre and reject swapped coordinates", () => {
+    expect(53.5461).toBeGreaterThanOrEqual(EDMONTON_COORDINATE_LIMITS.south);
+    expect(53.5461).toBeLessThanOrEqual(EDMONTON_COORDINATE_LIMITS.north);
+    expect(-113.4938).toBeGreaterThanOrEqual(EDMONTON_COORDINATE_LIMITS.west);
+    expect(-113.4938).toBeLessThanOrEqual(EDMONTON_COORDINATE_LIMITS.east);
+    expect(-113.4938).toBeLessThan(EDMONTON_COORDINATE_LIMITS.south);
+  });
+});
