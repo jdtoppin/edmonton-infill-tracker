@@ -11,18 +11,26 @@ const requestTimeoutMs = 15_000;
 const componentDefinitions = {
   node: {
     label: "Node.js",
+    source: "docker",
     repository: "node",
     suffix: "bookworm-slim",
     versionParts: 3,
   },
+  npm: {
+    label: "npm",
+    source: "npm",
+    versionParts: 3,
+  },
   caddy: {
     label: "Caddy",
+    source: "docker",
     repository: "caddy",
     suffix: "alpine",
     versionParts: 3,
   },
   postgres: {
     label: "PostgreSQL",
+    source: "docker",
     repository: "postgres",
     suffix: "bookworm",
     versionParts: 2,
@@ -61,6 +69,16 @@ export function selectLatestIncrementalVersion({ current, tags, suffix, versionP
   return newest && compareVersions(newest.parts, currentParts) > 0 ? newest.version : current;
 }
 
+export function selectLatestSameMajorVersion({ current, candidate, versionParts }) {
+  const currentParts = parseVersion(current, versionParts);
+  const candidateParts = parseVersion(candidate, versionParts);
+  if (!currentParts) throw new Error(`Invalid pinned version: ${current}`);
+  if (!candidateParts || candidateParts[0] !== currentParts[0]) {
+    throw new Error(`Invalid same-major update candidate: ${candidate}`);
+  }
+  return compareVersions(candidateParts, currentParts) > 0 ? candidate : current;
+}
+
 function exactlyOneMatch(contents, pattern, label) {
   const matches = [...contents.matchAll(pattern)];
   if (matches.length !== 1 || !matches[0]?.[1]) {
@@ -82,6 +100,7 @@ export async function readPinnedVersions() {
 
   return {
     node: exactlyOneMatch(dockerfile, /^ARG NODE_VERSION=(\d+\.\d+\.\d+)$/gm, "Dockerfile"),
+    npm: exactlyOneMatch(dockerfile, /^ARG NPM_VERSION=(\d+\.\d+\.\d+)$/gm, "Dockerfile"),
     caddy: exactlyOneMatch(
       compose,
       /^\s+image: caddy:(\d+\.\d+\.\d+)-alpine$/gm,
@@ -146,19 +165,52 @@ async function fetchDockerTags(repository, major, fetchImpl = fetch) {
   return tags;
 }
 
+async function fetchNpmSameMajorVersion(major, fetchImpl = fetch) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), requestTimeoutMs);
+  let response;
+  try {
+    response = await fetchImpl("https://registry.npmjs.org/-/package/npm/dist-tags", {
+      headers: { accept: "application/json", "user-agent": "edmonton-infill-support-updater" },
+      redirect: "error",
+      signal: controller.signal,
+    });
+  } finally {
+    clearTimeout(timer);
+  }
+  if (!response.ok) throw new Error(`npm registry returned HTTP ${response.status}.`);
+
+  const body = await response.text();
+  if (Buffer.byteLength(body, "utf8") > maximumResponseBytes) {
+    throw new Error("npm registry response exceeded the size limit.");
+  }
+  const parsed = JSON.parse(body);
+  const candidate = parsed?.[`next-${major}`];
+  if (typeof candidate !== "string" || !/^\d+\.\d+\.\d+$/.test(candidate)) {
+    throw new Error(`npm registry returned no stable npm ${major} release tag.`);
+  }
+  return candidate;
+}
+
 export async function discoverIncrementalUpdates(currentVersions, fetchImpl = fetch) {
   const entries = await Promise.all(
     Object.entries(componentDefinitions).map(async ([key, definition]) => {
       const current = currentVersions[key];
       const currentParts = parseVersion(current, definition.versionParts);
       if (!currentParts) throw new Error(`Invalid ${definition.label} pin: ${current}`);
-      const tags = await fetchDockerTags(definition.repository, currentParts[0], fetchImpl);
-      const latest = selectLatestIncrementalVersion({
-        current,
-        tags,
-        suffix: definition.suffix,
-        versionParts: definition.versionParts,
-      });
+      const latest =
+        definition.source === "npm"
+          ? selectLatestSameMajorVersion({
+              current,
+              candidate: await fetchNpmSameMajorVersion(currentParts[0], fetchImpl),
+              versionParts: definition.versionParts,
+            })
+          : selectLatestIncrementalVersion({
+              current,
+              tags: await fetchDockerTags(definition.repository, currentParts[0], fetchImpl),
+              suffix: definition.suffix,
+              versionParts: definition.versionParts,
+            });
       return [key, { ...definition, current, latest }];
     }),
   );
@@ -185,16 +237,23 @@ async function updateFile(relativePath, replacements) {
 
 export async function applyPinnedVersions(current, latest) {
   const nodeReplacement = [current.node, latest.node];
+  const npmReplacement = [current.npm, latest.npm];
   const postgresImageReplacement = [`${current.postgres}-3`, `${latest.postgres}-3`];
 
   await Promise.all([
     updateFile("Dockerfile", [
       [`ARG NODE_VERSION=${nodeReplacement[0]}`, `ARG NODE_VERSION=${nodeReplacement[1]}`, 1],
+      [`ARG NPM_VERSION=${npmReplacement[0]}`, `ARG NPM_VERSION=${npmReplacement[1]}`, 1],
     ]),
     updateFile("docker-compose.yml", [
       [
         `NODE_VERSION: \${NODE_VERSION:-${nodeReplacement[0]}}`,
         `NODE_VERSION: \${NODE_VERSION:-${nodeReplacement[1]}}`,
+        1,
+      ],
+      [
+        `NPM_VERSION: \${NPM_VERSION:-${npmReplacement[0]}}`,
+        `NPM_VERSION: \${NPM_VERSION:-${npmReplacement[1]}}`,
         1,
       ],
       [
@@ -208,6 +267,11 @@ export async function applyPinnedVersions(current, latest) {
       [
         `NODE_VERSION: \${NODE_VERSION:-${nodeReplacement[0]}}`,
         `NODE_VERSION: \${NODE_VERSION:-${nodeReplacement[1]}}`,
+        1,
+      ],
+      [
+        `NPM_VERSION: \${NPM_VERSION:-${npmReplacement[0]}}`,
+        `NPM_VERSION: \${NPM_VERSION:-${npmReplacement[1]}}`,
         1,
       ],
       [

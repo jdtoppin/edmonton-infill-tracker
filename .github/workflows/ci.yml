@@ -282,6 +282,18 @@ jobs:
       - name: Validate application runtime image
         run: docker run --rm --entrypoint node edmonton-infill-tracker:security-scan --version
 
+      - name: Validate pinned npm runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected_npm=$(sed -n 's/^ARG NPM_VERSION=//p' Dockerfile)
+          printf '%s\n' "$expected_npm" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'
+          actual_npm=$(docker run --rm --entrypoint npm edmonton-infill-tracker:security-scan --version)
+          [ "$actual_npm" = "$expected_npm" ] || {
+            printf 'Expected npm %s, found %s\n' "$expected_npm" "$actual_npm" >&2
+            exit 1
+          }
+
       - name: Validate Caddy configuration
         run: >-
           docker run

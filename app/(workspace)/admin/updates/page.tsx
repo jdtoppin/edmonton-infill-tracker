@@ -108,7 +108,7 @@ export default async function UpdatesPage() {
                 fast-forwards Git, rebuilds, migrates, restarts, and checks health.
               </p>
               <p className="mt-2 text-xs leading-5 text-[var(--muted)]">
-                Reviewed releases include CI-tested Node.js, Caddy, and PostgreSQL image updates;
+                Reviewed releases include CI-tested Node.js, npm, Caddy, and PostgreSQL updates;
                 this command rebuilds and pulls those pinned versions without automatically
                 deploying an unreviewed dependency change.
               </p>

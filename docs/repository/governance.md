@@ -69,7 +69,7 @@ Create the `bug`, `enhancement`, and `data-quality` labels referenced by the iss
 - Show how imports remain idempotent and alerts remain deduplicated when those areas change.
 - Never paste production records, addresses beyond the minimum public evidence, user email addresses, tokens, or `.env` content into issues, commits, screenshots, or CI logs.
 - Require human review for dependency major versions and database image changes. Dependabot groups only minor and patch npm updates automatically.
-- Let the scheduled support-component workflow coordinate stable same-major Node.js, Caddy, and PostgreSQL pins. It may push only an isolated `codex/support-components-*` branch and may open a pull request only after a dispatched full CI run passes; it must never merge or deploy.
+- Let the scheduled support-component workflow coordinate stable same-major Node.js, npm, Caddy, and PostgreSQL pins. It may push only an isolated `codex/support-components-*` branch and may open a pull request only after a dispatched full CI run passes; it must never merge or deploy.
 
 ## Releases and deployment
 

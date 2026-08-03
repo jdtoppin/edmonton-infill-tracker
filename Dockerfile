@@ -1,14 +1,18 @@
 # syntax=docker/dockerfile:1.7
 
 ARG NODE_VERSION=22.23.2
+ARG NPM_VERSION=11.19.0
 
 FROM node:${NODE_VERSION}-bookworm-slim AS base
+ARG NPM_VERSION
 WORKDIR /app
 
 ENV NEXT_TELEMETRY_DISABLED=1
 
 RUN apt-get update \
     && apt-get install --no-install-recommends -y ca-certificates openssl \
+    && npm install --global "npm@${NPM_VERSION}" \
+    && npm cache clean --force \
     && rm -rf /var/lib/apt/lists/*
 
 FROM base AS dependencies

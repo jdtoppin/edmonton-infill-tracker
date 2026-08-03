@@ -1,6 +1,9 @@
 import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
-import { selectLatestIncrementalVersion } from "../../scripts/support-component-updates.mjs";
+import {
+  selectLatestIncrementalVersion,
+  selectLatestSameMajorVersion,
+} from "../../scripts/support-component-updates.mjs";
 
 describe("support-component update policy", () => {
   it("selects stable same-major image updates without downgrading", () => {
@@ -30,6 +33,37 @@ describe("support-component update policy", () => {
     ).toBe("17.10");
   });
 
+  it("accepts only a newer stable npm release on the pinned major", () => {
+    expect(
+      selectLatestSameMajorVersion({
+        current: "11.18.0",
+        candidate: "11.19.0",
+        versionParts: 3,
+      }),
+    ).toBe("11.19.0");
+    expect(
+      selectLatestSameMajorVersion({
+        current: "11.19.0",
+        candidate: "11.18.0",
+        versionParts: 3,
+      }),
+    ).toBe("11.19.0");
+    expect(() =>
+      selectLatestSameMajorVersion({
+        current: "11.19.0",
+        candidate: "12.0.2",
+        versionParts: 3,
+      }),
+    ).toThrow("same-major");
+    expect(() =>
+      selectLatestSameMajorVersion({
+        current: "11.19.0",
+        candidate: "11.20.0-beta.1",
+        versionParts: 3,
+      }),
+    ).toThrow("same-major");
+  });
+
   it("keeps coordinated support pins synchronized", async () => {
     const [dockerfile, compose, developmentCompose, postgresDockerfile, ci, updater] =
       await Promise.all([
@@ -45,10 +79,12 @@ describe("support-component update policy", () => {
       ]);
 
     const nodeVersion = dockerfile.match(/^ARG NODE_VERSION=(\d+\.\d+\.\d+)$/m)?.[1];
+    const npmVersion = dockerfile.match(/^ARG NPM_VERSION=(\d+\.\d+\.\d+)$/m)?.[1];
     const postgresVersion = postgresDockerfile.match(/^FROM postgres:(\d+\.\d+)-bookworm$/m)?.[1];
     const caddyVersion = compose.match(/^\s+image: caddy:(\d+\.\d+\.\d+)-alpine$/m)?.[1];
 
     expect(nodeVersion).toBeTruthy();
+    expect(npmVersion).toBeTruthy();
     expect(postgresVersion).toBeTruthy();
     expect(caddyVersion).toBeTruthy();
     for (const file of [compose, developmentCompose, ci, updater]) {
@@ -57,8 +93,10 @@ describe("support-component update policy", () => {
     expect(ci.split(`node-version: ${nodeVersion}`).length - 1).toBe(5);
     expect(updater.split(`node-version: ${nodeVersion}`).length - 1).toBe(1);
     for (const file of [compose, developmentCompose]) {
+      expect(file).toContain(`NPM_VERSION:-${npmVersion}`);
       expect(file).toContain(`POSTGIS_IMAGE_TAG:-${postgresVersion}-3`);
     }
+    expect(dockerfile).toContain(`npm install --global "npm@\${NPM_VERSION}"`);
     expect(ci).toContain(`docker pull caddy:${caddyVersion}-alpine`);
     expect(ci.split(`caddy:${caddyVersion}-alpine`).length - 1).toBe(3);
   });
