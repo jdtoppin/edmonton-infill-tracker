@@ -25,7 +25,7 @@ const columns: Array<{ label: string; sort: ProjectSortField; align?: "right" }>
   { label: "Neighbourhood", sort: "neighbourhood" },
   { label: "Category", sort: "category" },
   { label: "Stage", sort: "stage" },
-  { label: "First detected", sort: "earliestEventDate" },
+  { label: "Earliest permit", sort: "earliestEventDate" },
   { label: "Latest event", sort: "latestEventDate" },
   { label: "Confidence", sort: "confidence", align: "right" },
   { label: "Units", sort: "units", align: "right" },
@@ -65,7 +65,12 @@ function ProjectCard({ project }: { project: ProjectListItem }) {
       </div>
       <dl className="mt-4 grid grid-cols-2 gap-3 text-xs">
         <div>
-          <dt className="text-[var(--muted)]">First detected</dt>
+          <dt
+            className="text-[var(--muted)]"
+            title="Earliest dated permit milestone grouped into this project"
+          >
+            Earliest permit
+          </dt>
           <dd className="m-0 mt-1 font-semibold">{dateLabel(project.firstDetectedDate)}</dd>
         </div>
         <div>
@@ -125,6 +130,11 @@ export function ProjectResults({
                       href={sortHref(filters, column.sort)}
                       className="inline-flex min-h-8 items-center gap-1 text-inherit no-underline"
                       aria-label={`Sort by ${column.label}${active ? `, currently ${filters.direction}ending` : ""}`}
+                      title={
+                        column.sort === "earliestEventDate"
+                          ? "Earliest dated permit milestone grouped into this project"
+                          : undefined
+                      }
                     >
                       {column.label}
                       {active && <Icon size={12} aria-hidden="true" />}

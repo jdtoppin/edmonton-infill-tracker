@@ -32,6 +32,7 @@ export const INFILL_PROJECT_CATEGORY_LABELS: Readonly<Record<InfillProjectCatego
 };
 
 export interface InfillPermitEvent {
+  sourceDataset?: string | null;
   permitType?: string | null;
   permitSubtype?: string | null;
   workDescription?: string | null;
@@ -122,6 +123,7 @@ function getEventTime(event: InfillPermitEvent): number | null {
 function eventSignals(event: InfillPermitEvent, config: InfillScoringConfig): EventSignals {
   const descriptionText = searchable(event.workDescription);
   const permitText = searchable(event.permitType, event.permitSubtype);
+  const formText = searchable(event.permitSubtype, event.workDescription, event.buildingType);
   const allText = searchable(
     event.permitType,
     event.permitSubtype,
@@ -133,7 +135,7 @@ function eventSignals(event: InfillPermitEvent, config: InfillScoringConfig): Ev
     config.keywords.residentialBuilding,
   );
   const renovation = containsAny(descriptionText, config.keywords.renovation);
-  const categorySpecificConstruction = containsAny(allText, [
+  const categorySpecificConstruction = containsAny(formText, [
     ...config.keywords.detached,
     ...config.keywords.semiDetached,
     ...config.keywords.duplex,
@@ -160,10 +162,13 @@ function eventSignals(event: InfillPermitEvent, config: InfillScoringConfig): Ev
     permitText,
     demolition: containsAny(allText, config.keywords.demolition),
     developmentPermit:
+      event.sourceDataset === "development" ||
       containsAny(permitText, config.keywords.developmentPermit) ||
       /\bdevelopment\b/.test(permitText),
     buildingPermit:
-      containsAny(permitText, config.keywords.buildingPermit) || /\bbuilding\b/.test(permitText),
+      event.sourceDataset === "building" ||
+      containsAny(permitText, config.keywords.buildingPermit) ||
+      /\bbuilding\b/.test(permitText),
     residentialBuilding,
     renovation,
     newDwellingLanguage,
@@ -216,7 +221,13 @@ function determineCategory(
 ): InfillProjectCategory {
   if (commercialOrIndustrial) return INFILL_PROJECT_CATEGORY.notRelevant;
 
-  const allText = signals.map((signal) => signal.allText).join(" ");
+  // Edmonton's JOB_CATEGORY can be the combined label
+  // "Single, Semi-detached & Rowhousing". It identifies a broad permit family,
+  // not the form being built, so prefer subtype/description/building type when
+  // selecting a specific project category.
+  const formText = signals
+    .map(({ event }) => searchable(event.permitSubtype, event.workDescription, event.buildingType))
+    .join(" ");
   const hasNewConstruction = signals.some((signal) => signal.newResidentialConstruction);
   const hasDemolition = signals.some(
     (signal) => signal.demolition && signal.event.sameAddress !== false,
@@ -224,19 +235,19 @@ function determineCategory(
   const hasRenovation = signals.some((signal) => signal.renovation);
 
   if (hasNewConstruction) {
-    if (containsAny(allText, config.keywords.gardenSuite)) {
+    if (containsAny(formText, config.keywords.gardenSuite)) {
       return INFILL_PROJECT_CATEGORY.probableGardenSuite;
     }
-    if (containsAny(allText, config.keywords.rowHousing)) {
+    if (containsAny(formText, config.keywords.rowHousing)) {
       return INFILL_PROJECT_CATEGORY.probableRowHousing;
     }
-    if (containsAny(allText, config.keywords.semiDetached)) {
+    if (containsAny(formText, config.keywords.semiDetached)) {
       return INFILL_PROJECT_CATEGORY.probableSemiDetachedInfill;
     }
-    if (containsAny(allText, config.keywords.duplex)) {
+    if (containsAny(formText, config.keywords.duplex)) {
       return INFILL_PROJECT_CATEGORY.probableDuplex;
     }
-    if (containsAny(allText, config.keywords.detached)) {
+    if (containsAny(formText, config.keywords.detached)) {
       return input.marketListingSignal
         ? INFILL_PROJECT_CATEGORY.probableNewDetachedInfillForMarket
         : INFILL_PROJECT_CATEGORY.probableNewDetachedInfill;

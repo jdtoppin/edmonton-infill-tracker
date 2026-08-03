@@ -140,6 +140,10 @@ function calculateProjectState(project: ProjectForAggregation) {
       estimatedConstructionValue,
       marketListingSignal: project.marketListingStatus === "CONFIRMED_MATCH",
       events: permits.map((permit) => ({
+        sourceDataset:
+          permit.sourceDataset === "development" || permit.sourceDataset === "building"
+            ? permit.sourceDataset
+            : null,
         permitType: permit.permitType,
         permitSubtype: permit.permitSubtype,
         workDescription: permit.workDescription,

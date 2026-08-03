@@ -57,6 +57,8 @@ describe("project CSV export", () => {
   it("exports only normalized project fields and a same-origin path", () => {
     const csv = projectsToCsv([project]);
     expect(csv).toContain("Address,Neighbourhood,Category");
+    expect(csv).toContain("Earliest permit date");
+    expect(csv).not.toContain("First detected date");
     expect(csv).toContain("/projects/synthetic-project");
     expect(csv).not.toContain("rawSourcePayload");
   });

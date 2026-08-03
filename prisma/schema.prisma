@@ -267,6 +267,9 @@ model ImportFailure {
 model PermitEvent {
   id                     String    @id @default(cuid())
   sourceProvider         String
+  // Normalized provider dataset identity. Display labels such as Edmonton's
+  // JOB_CATEGORY are not reliable substitutes for permit provenance.
+  sourceDataset          String?
   sourceRecordIdentifier String
   permitNumber           String?
   permitType             String
@@ -298,6 +301,8 @@ model PermitEvent {
   @@unique([sourceProvider, sourceRecordIdentifier])
   @@index([permitNumber])
   @@index([addressId])
+  @@index([sourceDataset, issueDate])
+  @@index([sourceDataset, occupancyGrantedDate])
   @@index([neighbourhoodId, issueDate])
   @@index([applicationDate])
   @@index([occupancyGrantedDate])

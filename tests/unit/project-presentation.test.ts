@@ -92,6 +92,11 @@ describe("project read-model presentation", () => {
     expect(markers.markers).toHaveLength(1);
     expect(detail?.dataMode).toBe("preview");
     expect(detail?.timeline[0]?.source.recordUrl).toBeNull();
+    expect(
+      dashboard.neighbourhoodBreakdown.every(
+        (area) => area.latitude !== null && area.longitude !== null,
+      ),
+    ).toBe(true);
     expect(dashboard.warnings).toContainEqual(
       expect.objectContaining({ code: "PREVIEW_DATA", severity: "info" }),
     );

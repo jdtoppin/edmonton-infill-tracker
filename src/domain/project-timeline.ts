@@ -24,6 +24,7 @@ export type ProjectMilestoneType =
 
 export interface TimelinePermitEvent {
   id: string;
+  sourceDataset?: string | null;
   permitType?: string | null;
   permitSubtype?: string | null;
   status?: string | null;
@@ -31,6 +32,7 @@ export interface TimelinePermitEvent {
   applicationDate?: Date | null;
   issueDate?: Date | null;
   occupancyGrantedDate?: Date | null;
+  eventDate?: Date | null;
   importedAt?: Date | null;
 }
 
@@ -73,6 +75,12 @@ function issuedMilestone(event: TimelinePermitEvent): {
   if (/\b(?:demolition|demolish)\b/.test(text)) {
     return { type: "DEMOLITION", stage: PROJECT_STAGE.demolition };
   }
+  if (event.sourceDataset === "development") {
+    return { type: "DEVELOPMENT_PERMIT", stage: PROJECT_STAGE.developmentPermit };
+  }
+  if (event.sourceDataset === "building") {
+    return { type: "BUILDING_PERMIT", stage: PROJECT_STAGE.buildingPermit };
+  }
   if (/\bdevelopment\b/.test(text)) {
     return { type: "DEVELOPMENT_PERMIT", stage: PROJECT_STAGE.developmentPermit };
   }
@@ -90,6 +98,7 @@ export function projectEventDate(event: TimelinePermitEvent): Date {
   if (validDate(event.issueDate)) return event.issueDate;
   if (validDate(event.applicationDate)) return event.applicationDate;
   if (validDate(event.occupancyGrantedDate)) return event.occupancyGrantedDate;
+  if (validDate(event.eventDate)) return event.eventDate;
   if (validDate(event.importedAt)) return event.importedAt;
   throw new Error(`Permit event ${event.id} has no usable timeline date.`);
 }

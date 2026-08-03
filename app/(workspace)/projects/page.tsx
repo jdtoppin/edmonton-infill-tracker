@@ -63,16 +63,35 @@ export default async function ProjectsPage({
   const incoming = await searchParams;
   const parsed = safeParseProjectFilters(incoming);
   const filters = parsed.success ? parsed.data : defaultProjectFilters();
+  const needsMap = filters.view !== "list";
   const preview = !process.env.DATABASE_URL && process.env.AUTH_REQUIRED !== "true";
   if (!preview && process.env.AUTH_REQUIRED === "true") await requireUser("/projects");
 
   const [page, markerResult, options] = preview
-    ? [getPreviewProjectPage(filters), getPreviewProjectMarkers(filters), getPreviewFilterOptions()]
+    ? [
+        getPreviewProjectPage(filters),
+        needsMap
+          ? getPreviewProjectMarkers(filters)
+          : {
+              dataMode: "preview" as const,
+              markers: [],
+              truncated: false,
+              missingCoordinateCount: 0,
+            },
+        getPreviewFilterOptions(),
+      ]
     : await (async () => {
         const db = await getDb();
         return Promise.all([
           listProjects(db, filters),
-          listProjectMarkers(db, filters),
+          needsMap
+            ? listProjectMarkers(db, filters)
+            : Promise.resolve({
+                dataMode: "live" as const,
+                markers: [],
+                truncated: false,
+                missingCoordinateCount: 0,
+              }),
           getProjectFilterOptions(db),
         ]);
       })();
@@ -97,44 +116,47 @@ export default async function ProjectsPage({
           actions={
             <a
               href={exportHref(filters)}
-              className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-[var(--border)] bg-white px-4 text-xs font-semibold text-[var(--ink)] no-underline"
+              className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-[var(--border)] bg-white px-4 text-xs font-semibold text-[var(--ink)] no-underline transition-[background-color,border-color,color,box-shadow] outline-none hover:border-[#9dc2c7] hover:bg-[var(--teal-soft)] hover:text-[var(--teal)] focus-visible:ring-2 focus-visible:ring-[var(--teal)] focus-visible:ring-offset-2"
             >
               <Download size={15} aria-hidden="true" /> Export filtered CSV
             </a>
           }
         />
 
-        {!parsed.success && (
-          <div className="mb-4">
+        <div className="mt-7 space-y-4">
+          {!parsed.success && (
             <WarningNotice>
               <strong className="block text-[var(--spruce)]">Some filters were not valid.</strong>
               <span>
                 Safe defaults are shown. Apply the filters again using the controls below.
               </span>
             </WarningNotice>
-          </div>
-        )}
+          )}
+          <ProjectFiltersForm filters={filters} options={options} />
+        </div>
 
-        <ProjectFiltersForm filters={filters} options={options} />
-        <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+        <div className="mt-6 flex flex-wrap items-end justify-between gap-4">
           <div>
             <div className="eyebrow">Filtered results</div>
             <h2 className="mt-1 mb-0 text-xl font-bold text-[var(--spruce)]">
               {page.total.toLocaleString("en-CA")} {page.total === 1 ? "project" : "projects"}
             </h2>
+            <p className="mt-1 mb-0 text-xs text-[var(--muted)]">
+              Earliest permit means the first dated City permit milestone grouped into a project.
+            </p>
           </div>
           <ProjectViewSwitcher filters={filters} />
         </div>
 
-        {markerResult.truncated && (
+        {needsMap && markerResult.truncated && (
           <p className="mt-3 rounded-lg bg-[#fff7ec] px-3 py-2 text-xs text-[#70491f]">
             The map is showing the first 2,000 locations. Narrow the filters for a complete map.
           </p>
         )}
-        {markerResult.missingCoordinateCount > 0 && (
+        {needsMap && markerResult.missingCoordinateCount > 0 && (
           <p className="mt-3 text-xs text-[var(--muted)]">
             {markerResult.missingCoordinateCount.toLocaleString("en-CA")} matching projects do not
-            have map coordinates but remain available in the list.
+            have map coordinates but remain available in List view.
           </p>
         )}
 
@@ -155,26 +177,31 @@ export default async function ProjectsPage({
             />
           </div>
         ) : (
-          <div className="mt-4">
+          <div className="mt-5">
             {filters.view === "list" && <ProjectResults items={page.items} filters={filters} />}
             {filters.view === "map" && (
               <ProjectMap
                 markers={markers}
                 mapboxToken={process.env.NEXT_PUBLIC_MAPBOX_TOKEN}
                 mapStyleUrl={process.env.MAPBOX_STYLE_URL}
+                showList={false}
               />
             )}
             {filters.view === "split" && (
-              <div className="grid gap-4 2xl:grid-cols-[minmax(0,0.95fr)_minmax(620px,1.15fr)]">
-                <ProjectResults items={page.items} filters={filters} />
-                <ProjectMap
-                  markers={markers}
-                  mapboxToken={process.env.NEXT_PUBLIC_MAPBOX_TOKEN}
-                  mapStyleUrl={process.env.MAPBOX_STYLE_URL}
-                />
-              </div>
+              <ProjectMap
+                markers={markers}
+                mapboxToken={process.env.NEXT_PUBLIC_MAPBOX_TOKEN}
+                mapStyleUrl={process.env.MAPBOX_STYLE_URL}
+                showList
+              />
             )}
-            <ProjectPagination filters={filters} totalPages={page.totalPages} total={page.total} />
+            {filters.view === "list" && (
+              <ProjectPagination
+                filters={filters}
+                totalPages={page.totalPages}
+                total={page.total}
+              />
+            )}
           </div>
         )}
       </main>

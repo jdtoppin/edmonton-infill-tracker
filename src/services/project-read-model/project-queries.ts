@@ -125,6 +125,7 @@ const projectDetailSelect = {
         select: {
           id: true,
           sourceProvider: true,
+          sourceDataset: true,
           sourceRecordIdentifier: true,
           permitNumber: true,
           permitType: true,
@@ -270,7 +271,14 @@ export type DashboardOverview = {
   newProjects: Record<DashboardPeriod, number>;
   lifecycle: Record<DashboardPeriod, LifecycleCounts>;
   categoryBreakdown: Array<{ category: ProjectCategory; label: string; count: number }>;
-  neighbourhoodBreakdown: Array<{ id: string; cityId: string; name: string; count: number }>;
+  neighbourhoodBreakdown: Array<{
+    id: string;
+    cityId: string;
+    name: string;
+    count: number;
+    latitude: number | null;
+    longitude: number | null;
+  }>;
   highConfidenceProjects: ProjectListItem[];
   recentDemolitions: ProjectListItem[];
   recentConstruction: ProjectListItem[];
@@ -550,7 +558,10 @@ function serializeProjectDetail(
   record: ProjectDetailRecord,
   dataMode: ReadModelDataMode,
 ): ProjectDetail {
-  const permits = record.events.map(({ permitEvent }) => permitEvent);
+  const permits = record.events.map(({ eventDate, permitEvent }) => ({
+    ...permitEvent,
+    eventDate,
+  }));
   const permitsById = new Map(permits.map((permit) => [permit.id, permit]));
   const timeline = buildProjectMilestones(permits).map((milestone): ProjectTimelineEntry => {
     const permit = permitsById.get(milestone.permitEventId)!;
@@ -631,26 +642,44 @@ function ago(now: Date, days: DashboardPeriod): Date {
   return new Date(now.getTime() - days * dayMilliseconds);
 }
 
-async function lifecycleCounts(db: PrismaClient, since: Date): Promise<LifecycleCounts> {
+function edmontonCivilDate(now: Date, daysBefore = 0): Date {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Edmonton",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(now);
+  const value = Object.fromEntries(parts.map(({ type, value: part }) => [type, part]));
+  return new Date(
+    Date.UTC(Number(value.year), Number(value.month) - 1, Number(value.day) - daysBefore),
+  );
+}
+
+async function lifecycleCounts(
+  db: PrismaClient,
+  since: Date,
+  through: Date,
+): Promise<LifecycleCounts> {
   const linkedToPublicProject = { project: publicBaseWhere };
   const [development, building, occupancy] = await Promise.all([
     db.permitEvent.count({
       where: {
-        issueDate: { gte: since },
-        permitType: { contains: "development", mode: "insensitive" },
+        sourceDataset: "development",
+        issueDate: { gte: since, lte: through },
         projectEvent: linkedToPublicProject,
       },
     }),
     db.permitEvent.count({
       where: {
-        issueDate: { gte: since },
-        permitType: { contains: "building", mode: "insensitive" },
+        sourceDataset: "building",
+        issueDate: { gte: since, lte: through },
         projectEvent: linkedToPublicProject,
       },
     }),
     db.permitEvent.count({
       where: {
-        occupancyGrantedDate: { gte: since },
+        sourceDataset: "building",
+        occupancyGrantedDate: { gte: since, lte: through },
         projectEvent: linkedToPublicProject,
       },
     }),
@@ -696,6 +725,7 @@ export async function getDashboardOverview(
   now = new Date(),
 ): Promise<DashboardOverview> {
   const periods = [7, 30, 90] as const;
+  const today = edmontonCivilDate(now);
   const [
     newProjectValues,
     lifecycleValues,
@@ -714,7 +744,9 @@ export async function getDashboardOverview(
         db.project.count({ where: { ...publicBaseWhere, createdAt: { gte: ago(now, period) } } }),
       ),
     ),
-    Promise.all(periods.map((period) => lifecycleCounts(db, ago(now, period)))),
+    Promise.all(
+      periods.map((period) => lifecycleCounts(db, edmontonCivilDate(now, period - 1), today)),
+    ),
     db.project.groupBy({ by: ["category"], where: publicBaseWhere, _count: { _all: true } }),
     db.project.groupBy({ by: ["neighbourhoodId"], where: publicBaseWhere, _count: { _all: true } }),
     db.project.findMany({
@@ -771,11 +803,38 @@ export async function getDashboardOverview(
   ]);
 
   const neighbourhoodIds = neighbourhoodGroups.map(({ neighbourhoodId }) => neighbourhoodId);
-  const neighbourhoods = await db.neighbourhood.findMany({
-    where: { id: { in: neighbourhoodIds } },
-    select: { id: true, cityNeighbourhoodId: true, name: true },
-  });
+  const [neighbourhoods, neighbourhoodCoordinates] = await Promise.all([
+    db.neighbourhood.findMany({
+      where: { id: { in: neighbourhoodIds } },
+      select: { id: true, cityNeighbourhoodId: true, name: true },
+    }),
+    db.address.groupBy({
+      by: ["neighbourhoodId"],
+      where: {
+        neighbourhoodId: { in: neighbourhoodIds },
+        latitude: { not: null },
+        longitude: { not: null },
+        projects: { some: publicBaseWhere },
+      },
+      _avg: { latitude: true, longitude: true },
+    }),
+  ]);
   const neighbourhoodById = new Map(neighbourhoods.map((item) => [item.id, item]));
+  const coordinatesByNeighbourhoodId = new Map(
+    neighbourhoodCoordinates.flatMap((item) =>
+      item.neighbourhoodId
+        ? [
+            [
+              item.neighbourhoodId,
+              {
+                latitude: serializeDecimal(item._avg.latitude),
+                longitude: serializeDecimal(item._avg.longitude),
+              },
+            ] as const,
+          ]
+        : [],
+    ),
+  );
   const warnings: DashboardOverview["warnings"] = [];
 
   if (!latestImport) {
@@ -853,6 +912,8 @@ export async function getDashboardOverview(
                 cityId: neighbourhood.cityNeighbourhoodId,
                 name: neighbourhood.name,
                 count: item._count._all,
+                latitude: coordinatesByNeighbourhoodId.get(neighbourhood.id)?.latitude ?? null,
+                longitude: coordinatesByNeighbourhoodId.get(neighbourhood.id)?.longitude ?? null,
               },
             ]
           : [];
@@ -1255,12 +1316,27 @@ export function getPreviewDashboardOverview(now = new Date()): DashboardOverview
       const count = items.filter((item) => item.category === category).length;
       return count ? [{ category, label: PROJECT_CATEGORY_LABELS[category], count }] : [];
     }),
-    neighbourhoodBreakdown: neighbourhoods.map(({ id, cityId, name, projectCount }) => ({
-      id,
-      cityId,
-      name,
-      count: projectCount,
-    })),
+    neighbourhoodBreakdown: neighbourhoods.map(({ id, cityId, name, projectCount }) => {
+      const projects = items.filter((project) => project.neighbourhood.id === id);
+      const located = projects.filter(
+        (project): project is PreviewProject & { latitude: number; longitude: number } =>
+          project.latitude !== null && project.longitude !== null,
+      );
+      return {
+        id,
+        cityId,
+        name,
+        count: projectCount,
+        latitude:
+          located.length === 0
+            ? null
+            : located.reduce((total, project) => total + project.latitude, 0) / located.length,
+        longitude:
+          located.length === 0
+            ? null
+            : located.reduce((total, project) => total + project.longitude, 0) / located.length,
+      };
+    }),
     highConfidenceProjects: items.filter((item) => item.confidence >= 80),
     recentDemolitions: [items[0]],
     recentConstruction: items,

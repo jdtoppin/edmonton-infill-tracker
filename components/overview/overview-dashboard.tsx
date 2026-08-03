@@ -9,6 +9,7 @@ import {
   CircleCheck,
   Database,
   Hammer,
+  MapPinned,
   MapPin,
   Search,
   TrendingUp,
@@ -77,6 +78,171 @@ function ProjectRows({ items, empty }: { items: ProjectListItem[]; empty: string
   );
 }
 
+const OVERVIEW_MAP_BOUNDS = {
+  west: -113.72,
+  east: -113.27,
+  north: 53.72,
+  south: 53.38,
+} as const;
+
+type ActivityArea = DashboardOverview["neighbourhoodBreakdown"][number];
+
+function mapPosition(area: ActivityArea): { left: number; top: number } | null {
+  if (area.latitude === null || area.longitude === null) return null;
+  const left =
+    ((area.longitude - OVERVIEW_MAP_BOUNDS.west) /
+      (OVERVIEW_MAP_BOUNDS.east - OVERVIEW_MAP_BOUNDS.west)) *
+    100;
+  const top =
+    ((OVERVIEW_MAP_BOUNDS.north - area.latitude) /
+      (OVERVIEW_MAP_BOUNDS.north - OVERVIEW_MAP_BOUNDS.south)) *
+    100;
+  return {
+    left: Math.min(95, Math.max(5, left)),
+    top: Math.min(94, Math.max(6, top)),
+  };
+}
+
+function OverviewActivityMap({ areas }: { areas: ActivityArea[] }) {
+  const visibleAreas = areas.slice(0, 10);
+  const mappedAreas = visibleAreas.flatMap((area) => {
+    const position = mapPosition(area);
+    return position ? [{ area, position }] : [];
+  });
+  const [selectedId, setSelectedId] = useState<string | null>(
+    mappedAreas[0]?.area.id ?? visibleAreas[0]?.id ?? null,
+  );
+  const selected = visibleAreas.find((area) => area.id === selectedId) ?? visibleAreas[0] ?? null;
+  const maxCount = Math.max(1, ...visibleAreas.map((area) => area.count));
+
+  return (
+    <Card className="mt-4 overflow-hidden">
+      <div className="flex flex-wrap items-start justify-between gap-4 border-b border-[var(--border-soft)] px-5 py-4">
+        <div>
+          <div className="eyebrow">Citywide distribution</div>
+          <h2 className="m-0 text-base font-bold text-[var(--spruce)]">Project activity map</h2>
+          <p className="mt-1 mb-0 text-xs leading-5 text-[var(--muted)]">
+            Circles show active project counts at the average location of each leading
+            neighbourhood.
+          </p>
+        </div>
+        <div className="inline-flex items-center gap-2 rounded-full bg-[var(--teal-soft)] px-3 py-1.5 text-[11px] font-semibold text-[var(--teal)]">
+          <MapPinned size={14} aria-hidden="true" /> {mappedAreas.length} mapped areas
+        </div>
+      </div>
+
+      <div className="grid lg:grid-cols-[minmax(0,1.6fr)_minmax(280px,0.65fr)]">
+        <section
+          className="map-grid relative min-h-[380px] border-r border-[var(--border-soft)]"
+          aria-label="Schematic map of project counts by Edmonton neighbourhood"
+        >
+          <div className="river river-one" aria-hidden="true" />
+          <div className="river river-two" aria-hidden="true" />
+          <div className="road road-a" aria-hidden="true" />
+          <div className="road road-b" aria-hidden="true" />
+          <div className="road road-c" aria-hidden="true" />
+          <span className="map-label downtown" aria-hidden="true">
+            Downtown
+          </span>
+          <span className="map-label strathcona" aria-hidden="true">
+            Strathcona
+          </span>
+          <span className="map-label university" aria-hidden="true">
+            University
+          </span>
+
+          {mappedAreas.map(({ area, position }) => {
+            const selectedArea = area.id === selected?.id;
+            const diameter = 40 + Math.round((area.count / maxCount) * 22);
+            return (
+              <button
+                key={area.id}
+                type="button"
+                className={`absolute z-10 grid -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full border-[3px] border-white text-xs font-extrabold text-white shadow-[0_5px_14px_rgba(23,48,51,0.28)] transition-transform outline-none hover:scale-110 focus-visible:ring-2 focus-visible:ring-[var(--spruce)] focus-visible:ring-offset-2 ${
+                  selectedArea ? "bg-[var(--copper)] ring-4 ring-white/70" : "bg-[var(--teal)]"
+                }`}
+                style={{
+                  left: `${position.left}%`,
+                  top: `${position.top}%`,
+                  width: diameter,
+                  height: diameter,
+                }}
+                aria-label={`${area.name}: ${area.count} active ${area.count === 1 ? "project" : "projects"}`}
+                aria-pressed={selectedArea}
+                onClick={() => setSelectedId(area.id)}
+              >
+                {area.count}
+              </button>
+            );
+          })}
+
+          {mappedAreas.length === 0 && (
+            <div className="absolute inset-0 grid place-items-center p-8 text-center">
+              <p className="max-w-sm text-sm leading-6 text-[var(--muted)]">
+                Neighbourhood totals are available, but their project coordinates have not been
+                recorded yet.
+              </p>
+            </div>
+          )}
+
+          <div className="map-legend" aria-hidden="true">
+            <span /> <strong>Project count</strong>
+            <span /> <strong>Selected</strong>
+          </div>
+        </section>
+
+        <aside className="flex flex-col bg-white p-5" aria-live="polite">
+          <div className="eyebrow">Selected neighbourhood</div>
+          {selected ? (
+            <>
+              <h3 className="mt-1 mb-0 text-xl font-bold text-[var(--spruce)]">{selected.name}</h3>
+              <strong className="mt-3 block text-4xl tracking-[-0.04em] text-[var(--teal)]">
+                {selected.count.toLocaleString("en-CA")}
+              </strong>
+              <p className="mt-1 text-xs leading-5 text-[var(--muted)]">
+                Active {selected.count === 1 ? "project" : "projects"} currently grouped in this
+                neighbourhood.
+              </p>
+              <Link
+                href={`/projects?neighbourhood=${encodeURIComponent(selected.cityId)}`}
+                className="mt-2 inline-flex min-h-10 items-center justify-center gap-2 rounded-lg bg-[var(--teal)] px-4 text-xs font-semibold text-white no-underline transition-colors hover:bg-[var(--spruce-soft)] focus-visible:ring-2 focus-visible:ring-[var(--teal)] focus-visible:ring-offset-2"
+              >
+                Explore this neighbourhood <ArrowRight size={14} aria-hidden="true" />
+              </Link>
+            </>
+          ) : (
+            <p className="text-sm text-[var(--muted)]">No neighbourhood activity is available.</p>
+          )}
+
+          {visibleAreas.length > 1 && (
+            <div className="mt-5 border-t border-[var(--border-soft)] pt-4">
+              <div className="eyebrow">Leading areas</div>
+              <div className="mt-2 grid gap-1">
+                {visibleAreas.slice(0, 6).map((area) => (
+                  <button
+                    key={area.id}
+                    type="button"
+                    className={`flex min-h-10 items-center justify-between rounded-lg px-3 text-left text-xs transition-colors outline-none focus-visible:ring-2 focus-visible:ring-[var(--teal)] ${
+                      area.id === selected?.id
+                        ? "bg-[var(--teal-soft)] font-bold text-[var(--teal)]"
+                        : "bg-transparent text-[var(--ink)] hover:bg-[#f7f8f5]"
+                    }`}
+                    aria-pressed={area.id === selected?.id}
+                    onClick={() => setSelectedId(area.id)}
+                  >
+                    <span className="truncate">{area.name}</span>
+                    <span className="ml-3 font-semibold">{area.count}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+        </aside>
+      </div>
+    </Card>
+  );
+}
+
 export function OverviewDashboard({ data }: { data: DashboardOverview }) {
   const [period, setPeriod] = useState<DashboardPeriod>(7);
   const lifecycle = data.lifecycle[period];
@@ -104,7 +270,7 @@ export function OverviewDashboard({ data }: { data: DashboardOverview }) {
           description="Live City-recorded permit milestones are grouped into projects and ranked by the strength of their evidence."
           actions={
             <Link
-              className="inline-flex min-h-10 items-center gap-2 rounded-lg bg-[var(--spruce)] px-4 text-xs font-semibold text-white no-underline"
+              className="inline-flex min-h-10 items-center gap-2 rounded-lg bg-[var(--teal)] px-4 text-xs font-semibold text-white no-underline shadow-sm transition-[background-color,box-shadow,transform] outline-none hover:-translate-y-px hover:bg-[var(--spruce-soft)] hover:shadow-md focus-visible:ring-2 focus-visible:ring-[var(--teal)] focus-visible:ring-offset-2"
               href="/projects"
             >
               <Search size={15} aria-hidden="true" /> Explore projects
@@ -168,11 +334,13 @@ export function OverviewDashboard({ data }: { data: DashboardOverview }) {
                 {value}
               </strong>
               <p className="mb-0 text-xs leading-5 text-[var(--muted)]">
-                City-recorded milestones in this period.
+                City-recorded milestones linked to tracked infill projects.
               </p>
             </Card>
           ))}
         </section>
+
+        <OverviewActivityMap areas={data.neighbourhoodBreakdown} />
 
         <div className="mt-4 grid gap-4 xl:grid-cols-[1.2fr_0.8fr]">
           <Card className="p-5">
