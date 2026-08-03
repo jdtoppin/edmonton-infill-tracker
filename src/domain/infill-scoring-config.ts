@@ -23,6 +23,8 @@ export interface InfillScoringKeywords {
   duplex: readonly string[];
   rowHousing: readonly string[];
   gardenSuite: readonly string[];
+  propertyOnly: readonly string[];
+  inactiveStatus: readonly string[];
 }
 
 export interface InfillScoringConfig {
@@ -30,6 +32,7 @@ export interface InfillScoringConfig {
   keywords: InfillScoringKeywords;
   highConstructionValueThreshold: number;
   demolitionToConstructionWindowDays: number;
+  maxEpisodeGapDays: number;
 }
 
 export type InfillScoringConfigOverrides = Omit<
@@ -39,6 +42,8 @@ export type InfillScoringConfigOverrides = Omit<
   weights?: Partial<InfillScoringWeights>;
   keywords?: Partial<InfillScoringKeywords>;
 };
+
+export class InfillScoringConfigError extends Error {}
 
 /**
  * Initial MVP scoring policy. Keeping weights, thresholds, and language here
@@ -56,13 +61,13 @@ export const DEFAULT_INFILL_SCORING_CONFIG: Readonly<InfillScoringConfig> = {
     renovationOnly: -25,
   },
   highConstructionValueThreshold: 250_000,
-  demolitionToConstructionWindowDays: 730,
+  demolitionToConstructionWindowDays: 548,
+  maxEpisodeGapDays: 548,
   keywords: {
     demolition: ["demolition", "demolish", "remove existing dwelling", "remove existing house"],
     newConstruction: ["new building", "new construction", "construct", "construction of", "erect"],
     newDwelling: [
       "new dwelling",
-      "new detached",
       "new house",
       "construct a dwelling",
       "construct dwelling",
@@ -83,7 +88,10 @@ export const DEFAULT_INFILL_SCORING_CONFIG: Readonly<InfillScoringConfig> = {
       "townhouse",
       "town house",
       "garden suite",
+      "garage suite",
+      "backyard house",
       "backyard housing",
+      "cluster housing",
       "multi-unit",
       "multi unit",
     ],
@@ -107,7 +115,27 @@ export const DEFAULT_INFILL_SCORING_CONFIG: Readonly<InfillScoringConfig> = {
     semiDetached: ["semi-detached", "semi detached"],
     duplex: ["duplex"],
     rowHousing: ["row house", "row housing", "row dwelling", "townhouse", "town house"],
-    gardenSuite: ["garden suite", "backyard housing"],
+    gardenSuite: ["garden suite", "garage suite", "backyard house", "backyard housing"],
+    propertyOnly: [
+      "accessory building",
+      "accessory structure",
+      "detached garage",
+      "mutual garage",
+      "garage",
+      "carport",
+      "shed",
+      "deck",
+      "fence",
+      "driveway",
+      "air conditioner",
+      "air conditioning",
+      "hvac",
+      "heating and ventilation",
+      "solar panel",
+      "hot tub",
+      "swimming pool",
+    ],
+    inactiveStatus: ["cancelled", "canceled", "expired", "refused", "withdrawn", "void", "voided"],
   },
 };
 
@@ -126,4 +154,42 @@ export function createInfillScoringConfig(
       ...overrides.keywords,
     },
   };
+}
+
+export function configuredInfillScoringConfig(
+  environment: Readonly<Record<string, string | undefined>> = process.env,
+): InfillScoringConfig {
+  const configuredThreshold = environment.INFILL_HIGH_VALUE_THRESHOLD?.trim();
+  const highConstructionValueThreshold = configuredThreshold
+    ? Number(configuredThreshold)
+    : undefined;
+  if (
+    highConstructionValueThreshold !== undefined &&
+    (!Number.isFinite(highConstructionValueThreshold) || highConstructionValueThreshold < 0)
+  ) {
+    throw new InfillScoringConfigError(
+      "INFILL_HIGH_VALUE_THRESHOLD must be a non-negative number.",
+    );
+  }
+
+  const configuredEpisodeGap = environment.INFILL_EPISODE_GAP_DAYS?.trim();
+  const maxEpisodeGapDays = configuredEpisodeGap ? Number(configuredEpisodeGap) : undefined;
+  if (
+    maxEpisodeGapDays !== undefined &&
+    (!Number.isInteger(maxEpisodeGapDays) || maxEpisodeGapDays < 1 || maxEpisodeGapDays > 3_650)
+  ) {
+    throw new InfillScoringConfigError(
+      "INFILL_EPISODE_GAP_DAYS must be an integer from 1 through 3650.",
+    );
+  }
+
+  return createInfillScoringConfig({
+    ...(highConstructionValueThreshold === undefined ? {} : { highConstructionValueThreshold }),
+    ...(maxEpisodeGapDays === undefined
+      ? {}
+      : {
+          maxEpisodeGapDays,
+          demolitionToConstructionWindowDays: maxEpisodeGapDays,
+        }),
+  });
 }

@@ -36,6 +36,7 @@ describe.skipIf(!hasDatabase)("durable job leases", () => {
         heartbeatAt: new Date("2026-01-01T00:00:00.000Z"),
         lockExpiresAt: new Date("2026-01-01T00:01:00.000Z"),
         startedAt: new Date("2026-01-01T00:00:00.000Z"),
+        createdAt: new Date("2000-01-01T00:00:00.000Z"),
         metadata: { mode: "incremental", datasets: ["building"], source: "manual" },
       },
     });

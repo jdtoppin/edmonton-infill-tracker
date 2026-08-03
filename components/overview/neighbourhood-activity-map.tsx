@@ -20,6 +20,8 @@ type NeighbourhoodActivityMapProps = {
   areas: readonly ActivityArea[];
   mapStyleUrl?: string | null;
   mapTileUrl?: string | null;
+  activeSince: string;
+  activeThrough: string;
 };
 
 type MapState = "loading" | "ready" | "empty" | "unsupported" | "error";
@@ -83,6 +85,8 @@ export function NeighbourhoodActivityMap({
   areas,
   mapStyleUrl,
   mapTileUrl,
+  activeSince,
+  activeThrough,
 }: NeighbourhoodActivityMapProps) {
   const visibleAreas = useMemo(() => areas.slice(0, 10), [areas]);
   const mappedAreas = useMemo(() => visibleAreas.filter(isMappable), [visibleAreas]);
@@ -309,7 +313,7 @@ export function NeighbourhoodActivityMap({
                 neighbourhood.
               </p>
               <Link
-                href={`/projects?neighbourhood=${encodeURIComponent(selected.cityId)}`}
+                href={`/projects?neighbourhood=${encodeURIComponent(selected.cityId)}&from=${encodeURIComponent(activeSince)}&to=${encodeURIComponent(activeThrough)}`}
                 className="mt-2 inline-flex min-h-10 items-center justify-center gap-2 rounded-lg bg-[var(--teal)] px-4 text-xs font-semibold text-white no-underline transition-colors hover:bg-[var(--spruce-soft)] focus-visible:ring-2 focus-visible:ring-[var(--teal)] focus-visible:ring-offset-2"
               >
                 Explore this neighbourhood <ArrowRight size={14} aria-hidden="true" />

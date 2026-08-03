@@ -45,6 +45,8 @@ describe.skipIf(!hasTestDatabase)("project detail read model", () => {
         computedStage: ProjectStage.DEVELOPMENT_PERMIT,
         earliestEventDate: eventDate,
         latestEventDate: eventDate,
+        infillStartDate: eventDate,
+        latestInfillActivityDate: eventDate,
         confidenceExplanation: { summary: "Synthetic integration fixture", factors: [] },
       },
     });
@@ -82,5 +84,9 @@ describe.skipIf(!hasTestDatabase)("project detail read model", () => {
         date: "2026-07-14",
       }),
     ]);
+    expect(detail).toMatchObject({
+      infillStartDate: "2026-07-14",
+      latestInfillActivityDate: "2026-07-14",
+    });
   });
 });

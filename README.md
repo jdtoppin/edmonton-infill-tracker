@@ -158,7 +158,7 @@ Copy `.env.example` to `.env`. Never commit the resulting file.
 | App/auth          | `APP_URL`, `AUTH_REQUIRED`, initial administrator email/password, seed-only credentials        |
 | Database          | `DATABASE_URL`, `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD`                            |
 | Edmonton API      | `EDMONTON_SOCRATA_BASE_URL`, both dataset IDs, `SOCRATA_APP_TOKEN`, paging/retry/rate settings |
-| Classification    | `INFILL_HIGH_VALUE_THRESHOLD`                                                                  |
+| Classification    | `INFILL_HIGH_VALUE_THRESHOLD`, `INFILL_EPISODE_GAP_DAYS`                                       |
 | Map               | `MAP_TILE_URL`, optional `MAP_STYLE_URL`                                                       |
 | Email             | SMTP host, port, username, password, and sender                                                |
 | Optional services | Pushover credentials and `SENTRY_DSN`                                                          |

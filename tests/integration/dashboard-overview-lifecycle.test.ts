@@ -18,6 +18,7 @@ describe.skipIf(!hasTestDatabase)("dashboard lifecycle overview", () => {
   const projectKey = `dashboard-lifecycle:${suffix}`;
   const now = new Date("2026-08-02T12:00:00.000Z");
   let db: PrismaClient;
+  let projectId: string;
 
   beforeAll(async () => {
     db = await getDb();
@@ -47,15 +48,21 @@ describe.skipIf(!hasTestDatabase)("dashboard lifecycle overview", () => {
         computedStage: ProjectStage.BUILDING_PERMIT,
         earliestEventDate: new Date("2026-07-29T00:00:00.000Z"),
         latestEventDate: new Date("2026-07-30T00:00:00.000Z"),
+        infillStartDate: new Date("2026-07-29T00:00:00.000Z"),
+        latestInfillActivityDate: new Date("2026-07-30T00:00:00.000Z"),
         confidenceExplanation: { summary: "Synthetic integration fixture", factors: [] },
       },
     });
+    projectId = project.id;
     const developmentPermit = await db.permitEvent.create({
       data: {
         sourceProvider,
         sourceDataset: "development",
         sourceRecordIdentifier: "development",
         permitType: "Development Permit",
+        workDescription: "Construct new row housing dwellings.",
+        buildingType: "Row Housing",
+        unitsAdded: 4,
         issueDate: new Date("2026-07-29T00:00:00.000Z"),
         status: "Approved",
         addressId: address.id,
@@ -72,6 +79,9 @@ describe.skipIf(!hasTestDatabase)("dashboard lifecycle overview", () => {
         sourceDataset: "building",
         sourceRecordIdentifier: "building",
         permitType: "Single, Semi-detached & Rowhousing",
+        workDescription: "Construct new row housing dwellings.",
+        buildingType: "Row Housing",
+        unitsAdded: 4,
         issueDate: new Date("2026-07-30T00:00:00.000Z"),
         status: "Issued",
         addressId: address.id,
@@ -79,6 +89,23 @@ describe.skipIf(!hasTestDatabase)("dashboard lifecycle overview", () => {
         rawSourcePayload: {
           job_category: "Single, Semi-detached & Rowhousing",
           issue_date: "2026-07-30",
+        },
+      },
+    });
+    const accessoryGarage = await db.permitEvent.create({
+      data: {
+        sourceProvider,
+        sourceDataset: "development",
+        sourceRecordIdentifier: "accessory-garage",
+        permitType: "Accessory Building Combo Permit",
+        workDescription: "Construct a detached garage.",
+        issueDate: new Date("2026-07-31T00:00:00.000Z"),
+        status: "Permitted Development",
+        addressId: address.id,
+        neighbourhoodId: neighbourhood.id,
+        rawSourcePayload: {
+          city_file_number: "synthetic-accessory-garage",
+          permit_date: "2026-07-31",
         },
       },
     });
@@ -95,7 +122,38 @@ describe.skipIf(!hasTestDatabase)("dashboard lifecycle overview", () => {
           permitEventId: buildingPermit.id,
           eventDate: new Date("2026-07-30T00:00:00.000Z"),
         },
+        {
+          projectId: project.id,
+          permitEventId: accessoryGarage.id,
+          eventDate: new Date("2026-07-31T00:00:00.000Z"),
+        },
       ],
+    });
+
+    const accessoryNoise = await db.permitEvent.createManyAndReturn({
+      data: Array.from({ length: 105 }, (_, index) => ({
+        sourceProvider,
+        sourceDataset: "development",
+        sourceRecordIdentifier: `accessory-noise-${index}`,
+        permitType: "Accessory Building Combo Permit",
+        workDescription: "Construct an Accessory Building (detached Garage).",
+        issueDate: new Date("2026-07-31T00:00:00.000Z"),
+        status: "Other",
+        addressId: address.id,
+        neighbourhoodId: neighbourhood.id,
+        rawSourcePayload: {
+          city_file_number: `synthetic-accessory-noise-${index}`,
+          permit_date: "2026-07-31",
+        },
+      })),
+      select: { id: true },
+    });
+    await db.projectEvent.createMany({
+      data: accessoryNoise.map(({ id }) => ({
+        projectId: project.id,
+        permitEventId: id,
+        eventDate: new Date("2026-07-31T00:00:00.000Z"),
+      })),
     });
   });
 
@@ -106,7 +164,7 @@ describe.skipIf(!hasTestDatabase)("dashboard lifecycle overview", () => {
     await db.neighbourhood.deleteMany({ where: { cityNeighbourhoodId } });
   });
 
-  it("counts City building-dataset events without treating development events as building permits", async () => {
+  it("counts qualifying City lifecycle events without counting an accessory garage", async () => {
     const overview = await getDashboardOverview(db, now);
 
     expect(overview.lifecycle[7]).toEqual({
@@ -114,5 +172,7 @@ describe.skipIf(!hasTestDatabase)("dashboard lifecycle overview", () => {
       building: 1,
       occupancy: 0,
     });
+    expect(overview.newProjects[7]).toBeGreaterThanOrEqual(1);
+    expect(overview.recentConstruction.map(({ id }) => id)).toContain(projectId);
   });
 });

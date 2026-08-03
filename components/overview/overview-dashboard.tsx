@@ -140,12 +140,12 @@ export function OverviewDashboard({
             <div className="mb-5 grid size-10 place-items-center rounded-lg bg-[var(--teal-soft)] text-[var(--teal)]">
               <TrendingUp size={19} aria-hidden="true" />
             </div>
-            <div className="text-xs font-semibold text-[var(--muted)]">New projects detected</div>
+            <div className="text-xs font-semibold text-[var(--muted)]">New infill starts</div>
             <strong className="mt-2 block text-4xl tracking-[-0.04em] text-[var(--spruce)]">
               {data.newProjects[period]}
             </strong>
             <p className="mb-0 text-xs leading-5 text-[var(--muted)]">
-              First grouped by the tracker in the past {period} days.
+              First qualifying infill milestone in the past {period} days.
             </p>
           </Card>
           {[
@@ -187,6 +187,8 @@ export function OverviewDashboard({
           areas={data.neighbourhoodBreakdown}
           mapStyleUrl={mapStyleUrl}
           mapTileUrl={mapTileUrl}
+          activeSince={data.activeSince}
+          activeThrough={data.activeThrough}
         />
 
         <div className="mt-4 grid gap-4 xl:grid-cols-[1.2fr_0.8fr]">
@@ -197,7 +199,7 @@ export function OverviewDashboard({
                 <h2>High-confidence projects</h2>
               </div>
               <Link
-                href="/projects?minConfidence=80"
+                href={`/projects?minConfidence=80&from=${encodeURIComponent(data.activeSince)}&to=${encodeURIComponent(data.activeThrough)}`}
                 className="inline-flex items-center gap-1 text-xs font-semibold text-[var(--teal)] no-underline"
               >
                 View all <ArrowRight size={14} />
@@ -225,7 +227,7 @@ export function OverviewDashboard({
                 {data.neighbourhoodBreakdown.slice(0, 6).map((area) => (
                   <Link
                     key={area.id}
-                    href={`/projects?neighbourhood=${encodeURIComponent(area.cityId)}`}
+                    href={`/projects?neighbourhood=${encodeURIComponent(area.cityId)}&from=${encodeURIComponent(data.activeSince)}&to=${encodeURIComponent(data.activeThrough)}`}
                     className="block text-inherit no-underline"
                   >
                     <div className="mb-1.5 flex items-center justify-between gap-3 text-xs">

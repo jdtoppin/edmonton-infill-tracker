@@ -323,6 +323,8 @@ model Project {
   stageOverride              ProjectStage?
   earliestEventDate          DateTime?           @db.Date
   latestEventDate            DateTime?           @db.Date
+  infillStartDate            DateTime?           @db.Date
+  latestInfillActivityDate   DateTime?           @db.Date
   estimatedUnits             Int?
   estimatedConstructionValue Decimal?            @db.Decimal(15, 2)
   marketListingStatus        MarketListingStatus @default(NOT_CHECKED)
@@ -350,6 +352,12 @@ model Project {
   alertEvents    AlertEvent[]
 
   @@index([addressId, latestEventDate])
+  @@index([infillStartDate])
+  @@index([latestInfillActivityDate])
+  @@index([neighbourhoodId, latestInfillActivityDate])
+  @@index([category, latestInfillActivityDate])
+  @@index([currentStage, latestInfillActivityDate])
+  @@index([infillConfidence, latestInfillActivityDate])
   @@index([neighbourhoodId, latestEventDate])
   @@index([category, latestEventDate])
   @@index([currentStage, latestEventDate])

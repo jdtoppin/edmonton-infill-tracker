@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { Gauge, Scale } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { PageHeading } from "@/components/workspace/page-header";
-import { createInfillScoringConfig } from "@/src/domain/infill-scoring-config";
+import { configuredInfillScoringConfig } from "@/src/domain/infill-scoring-config";
 import { requireAdmin } from "@/src/lib/auth";
 import { getDb } from "@/src/lib/db";
 import { previewProjectScoring } from "@/src/services/project-intelligence";
@@ -31,7 +31,11 @@ export default async function RulesPage({
   const db = await getDb();
   const projects = await db.project.findMany({
     where: { mergedIntoId: null },
-    orderBy: [{ reviewStatus: "asc" }, { infillConfidence: "asc" }, { latestEventDate: "desc" }],
+    orderBy: [
+      { reviewStatus: "asc" },
+      { infillConfidence: "asc" },
+      { latestInfillActivityDate: { sort: "desc", nulls: "last" } },
+    ],
     take: 100,
     select: {
       id: true,
@@ -45,12 +49,7 @@ export default async function RulesPage({
   const preview = selected
     ? await previewProjectScoring(db, { projectId: selected.id, actorUserId: user.id })
     : null;
-  const configuredThreshold = Number(process.env.INFILL_HIGH_VALUE_THRESHOLD ?? 250_000);
-  const config = createInfillScoringConfig({
-    highConstructionValueThreshold: Number.isFinite(configuredThreshold)
-      ? configuredThreshold
-      : 250_000,
-  });
+  const config = configuredInfillScoringConfig();
 
   return (
     <section>
@@ -81,7 +80,7 @@ export default async function RulesPage({
               </div>
             ))}
           </div>
-          <dl className="mt-4 grid grid-cols-2 gap-3 rounded-lg bg-[#f7f8f5] p-3 text-xs">
+          <dl className="mt-4 grid gap-3 rounded-lg bg-[#f7f8f5] p-3 text-xs sm:grid-cols-3">
             <div>
               <dt className="text-[var(--muted)]">High-value threshold</dt>
               <dd className="m-0 mt-1 font-bold">
@@ -93,6 +92,10 @@ export default async function RulesPage({
               <dd className="m-0 mt-1 font-bold">
                 {config.demolitionToConstructionWindowDays} days
               </dd>
+            </div>
+            <div>
+              <dt className="text-[var(--muted)]">Maximum episode lookback</dt>
+              <dd className="m-0 mt-1 font-bold">{config.maxEpisodeGapDays} days</dd>
             </div>
           </dl>
         </section>

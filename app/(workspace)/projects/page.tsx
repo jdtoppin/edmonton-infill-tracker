@@ -38,8 +38,7 @@ function mapMarkers(
     categoryLabel: project.categoryLabel,
     stageLabel: project.stageLabel,
     confidence: project.confidence,
-    latestEventLabel: project.latestEvent?.permitSubtype ?? project.latestEvent?.permitType ?? null,
-    latestEventDate: project.latestEventDate,
+    latestInfillActivityDate: project.latestInfillActivityDate,
     constructionValue:
       project.constructionValue === null
         ? null
@@ -142,7 +141,8 @@ export default async function ProjectsPage({
               {page.total.toLocaleString("en-CA")} {page.total === 1 ? "project" : "projects"}
             </h2>
             <p className="mt-1 mb-0 text-xs text-[var(--muted)]">
-              Earliest permit means the first dated City permit milestone grouped into a project.
+              Infill start is the first milestone used to identify the project. Latest infill
+              milestone excludes unrelated later property permits.
             </p>
           </div>
           <ProjectViewSwitcher filters={filters} />

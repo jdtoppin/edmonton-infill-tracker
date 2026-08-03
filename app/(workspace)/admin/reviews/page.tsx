@@ -59,7 +59,7 @@ export default async function ReviewsPage({
     orderBy: [
       { marketReviewRequired: "desc" },
       { infillConfidence: "asc" },
-      { latestEventDate: "desc" },
+      { latestInfillActivityDate: { sort: "desc", nulls: "last" } },
       { id: "asc" },
     ],
     skip: (page - 1) * PAGE_SIZE,

@@ -21,8 +21,8 @@ const project: ProjectListItem = {
   stage: ProjectStage.BUILDING_PERMIT,
   stageLabel: "Building permit",
   confidence: 90,
-  firstDetectedDate: "2026-07-01",
-  latestEventDate: "2026-08-01",
+  infillStartDate: "2026-07-01",
+  latestInfillActivityDate: "2026-08-01",
   units: 1,
   constructionValue: 485000,
   reviewStatus: ReviewStatus.CONFIRMED,
@@ -57,8 +57,9 @@ describe("project CSV export", () => {
   it("exports only normalized project fields and a same-origin path", () => {
     const csv = projectsToCsv([project]);
     expect(csv).toContain("Address,Neighbourhood,Category");
-    expect(csv).toContain("Earliest permit date");
-    expect(csv).not.toContain("First detected date");
+    expect(csv).toContain("Infill start");
+    expect(csv).toContain("Latest infill milestone");
+    expect(csv).not.toContain("Earliest permit date");
     expect(csv).toContain("/projects/synthetic-project");
     expect(csv).not.toContain("rawSourcePayload");
   });

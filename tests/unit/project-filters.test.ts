@@ -1,8 +1,11 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
+import type { PrismaClient } from "../../src/generated/prisma/client";
 import { ProjectCategory, ProjectStage } from "../../src/generated/prisma/enums";
 import {
+  buildPublicProjectWhere,
   defaultProjectFilters,
+  listProjects,
   parseProjectFilters,
   projectFiltersToSearchParams,
   safeParseProjectFilters,
@@ -84,5 +87,38 @@ describe("project URL filters", () => {
     expect(safeParseProjectFilters({ from: "2026-08-02", to: "2026-08-01" }).success).toBe(false);
     expect(safeParseProjectFilters({ minValue: "2", maxValue: "1" }).success).toBe(false);
     expect(safeParseProjectFilters({ minUnits: "2", maxUnits: "1" }).success).toBe(false);
+  });
+
+  it("filters date ranges by the latest qualifying infill milestone", () => {
+    const where = buildPublicProjectWhere(
+      parseProjectFilters({ from: "2026-01-01", to: "2026-08-02" }),
+    );
+
+    expect(where).toMatchObject({
+      latestInfillActivityDate: {
+        gte: new Date("2026-01-01T00:00:00.000Z"),
+        lte: new Date("2026-08-02T00:00:00.000Z"),
+      },
+    });
+    expect(where).not.toHaveProperty("latestEventDate");
+  });
+
+  it("sorts the default project view by the latest qualifying infill milestone", async () => {
+    const findMany = vi.fn().mockResolvedValue([]);
+    const db = {
+      project: {
+        count: vi.fn().mockResolvedValue(0),
+        findMany,
+      },
+      $transaction: vi.fn(async (operations: Array<Promise<unknown>>) => Promise.all(operations)),
+    } as unknown as PrismaClient;
+
+    await listProjects(db, defaultProjectFilters());
+
+    expect(findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        orderBy: [{ latestInfillActivityDate: { sort: "desc", nulls: "last" } }, { id: "asc" }],
+      }),
+    );
   });
 });

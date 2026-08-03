@@ -34,8 +34,7 @@ export type ProjectMapMarker = {
   categoryLabel: string;
   stageLabel: string;
   confidence: number;
-  latestEventLabel: string | null;
-  latestEventDate: string | null;
+  latestInfillActivityDate: string | null;
   constructionValue: string | null;
   estimatedUnits: number | null;
   latitude: number | null;
@@ -110,8 +109,7 @@ function popupContent(project: ProjectMapMarker): HTMLElement {
   appendPopupLine(article, "Category", project.categoryLabel);
   appendPopupLine(article, "Stage", project.stageLabel);
   appendPopupLine(article, "Confidence", `${confidenceValue(project.confidence)}%`);
-  appendPopupLine(article, "Latest event", project.latestEventLabel);
-  appendPopupLine(article, "Event date", project.latestEventDate);
+  appendPopupLine(article, "Latest infill milestone", project.latestInfillActivityDate);
   appendPopupLine(article, "Construction value", project.constructionValue);
   appendPopupLine(
     article,

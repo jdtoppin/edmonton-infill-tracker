@@ -11,8 +11,8 @@ import {
   RunStatus,
   UserRole,
 } from "../../generated/prisma/enums";
-import { classifyInfillProject } from "../../domain/infill-classification";
-import { createInfillScoringConfig } from "../../domain/infill-scoring-config";
+import { classifyInfillProject, INFILL_EVENT_ROLE } from "../../domain/infill-classification";
+import { configuredInfillScoringConfig } from "../../domain/infill-scoring-config";
 import { getSiteAddressKey } from "../../domain/project-matching";
 import {
   buildProjectMilestones,
@@ -115,54 +115,46 @@ export function requiresMarketReview(
 function calculateProjectState(project: ProjectForAggregation) {
   const permits = project.events.map(({ permitEvent }) => permitEvent);
   const milestones = buildProjectMilestones(permits);
-  const estimatedUnits = maximum(permits.map(({ unitsAdded }) => unitsAdded));
-  const estimatedConstructionValue = maximum(
-    permits.map(({ constructionValue }) =>
-      constructionValue === null ? null : Number(constructionValue),
-    ),
-  );
-  const configuredThreshold = process.env.INFILL_HIGH_VALUE_THRESHOLD?.trim();
-  const highConstructionValueThreshold = configuredThreshold
-    ? Number(configuredThreshold)
-    : undefined;
-  if (
-    highConstructionValueThreshold !== undefined &&
-    (!Number.isFinite(highConstructionValueThreshold) || highConstructionValueThreshold < 0)
-  ) {
-    throw new ProjectIntelligenceError(
-      "INFILL_HIGH_VALUE_THRESHOLD must be a non-negative number.",
-    );
-  }
+  const config = configuredInfillScoringConfig();
+  const classificationEvents = permits.map((permit) => ({
+    sourceDataset:
+      permit.sourceDataset === "development" || permit.sourceDataset === "building"
+        ? permit.sourceDataset
+        : null,
+    permitType: permit.permitType,
+    permitSubtype: permit.permitSubtype,
+    status: permit.status,
+    workDescription: permit.workDescription,
+    buildingType: permit.buildingType,
+    unitsAdded: permit.unitsAdded,
+    constructionValue: permit.constructionValue === null ? null : Number(permit.constructionValue),
+    applicationDate: permit.applicationDate,
+    issueDate: permit.issueDate,
+    occupancyGrantedDate: permit.occupancyGrantedDate,
+    observedAt: permit.createdAt,
+  }));
   const classification = classifyInfillProject(
     {
       neighbourhood: project.neighbourhood.name,
-      estimatedUnits,
-      estimatedConstructionValue,
       marketListingSignal: project.marketListingStatus === "CONFIRMED_MATCH",
-      events: permits.map((permit) => ({
-        sourceDataset:
-          permit.sourceDataset === "development" || permit.sourceDataset === "building"
-            ? permit.sourceDataset
-            : null,
-        permitType: permit.permitType,
-        permitSubtype: permit.permitSubtype,
-        workDescription: permit.workDescription,
-        buildingType: permit.buildingType,
-        unitsAdded: permit.unitsAdded,
-        constructionValue:
-          permit.constructionValue === null ? null : Number(permit.constructionValue),
-        applicationDate: permit.applicationDate,
-        issueDate: permit.issueDate,
-      })),
+      events: classificationEvents,
     },
-    createInfillScoringConfig(
-      highConstructionValueThreshold === undefined ? {} : { highConstructionValueThreshold },
+    config,
+  );
+  const selectedEvents = new Set(classification.episode.events);
+  const episodePermits = permits.filter((_permit, index) =>
+    selectedEvents.has(classificationEvents[index]!),
+  );
+  const estimatedUnits = maximum(episodePermits.map(({ unitsAdded }) => unitsAdded));
+  const estimatedConstructionValue = maximum(
+    episodePermits.map(({ constructionValue }) =>
+      constructionValue === null ? null : Number(constructionValue),
     ),
   );
   const computedCategory = classification.category as ProjectCategory;
-  const computedStage = determineProjectStage(permits) as ProjectStage;
+  const computedStage = determineProjectStage(episodePermits) as ProjectStage;
   const category = project.categoryOverride ?? computedCategory;
-  const occupancyDates = permits
+  const occupancyDates = episodePermits
     .map(({ occupancyGrantedDate }) => occupancyGrantedDate)
     .filter((date): date is Date => date !== null);
   const latestOccupancy = occupancyDates.sort((left, right) => right.getTime() - left.getTime())[0];
@@ -175,6 +167,8 @@ function calculateProjectState(project: ProjectForAggregation) {
     currentStage: project.stageOverride ?? computedStage,
     earliestEventDate: milestones.at(0)?.date ?? null,
     latestEventDate: milestones.at(-1)?.date ?? null,
+    infillStartDate: classification.episode.infillStartDate,
+    latestInfillActivityDate: classification.episode.latestInfillActivityDate,
     estimatedUnits,
     estimatedConstructionValue,
     marketReviewRequired: requiresMarketReview(
@@ -194,6 +188,19 @@ function calculateProjectState(project: ProjectForAggregation) {
       timeline: {
         demolitionToConstructionDays: classification.timeline.demolitionToConstructionDays,
         withinConfiguredWindow: classification.timeline.withinConfiguredWindow,
+      },
+      episode: {
+        maxLookbackDays: config.maxEpisodeGapDays,
+        infillStartDate: classification.episode.infillStartDate?.toISOString() ?? null,
+        latestInfillActivityDate:
+          classification.episode.latestInfillActivityDate?.toISOString() ?? null,
+        includedEventCount: classification.episode.events.length,
+        propertyOnlyEventCount: classification.episode.allAssessments.filter(
+          ({ role }) => role === INFILL_EVENT_ROLE.propertyOnly,
+        ).length,
+        excludedEventCount: classification.episode.allAssessments.filter(
+          ({ role }) => role === INFILL_EVENT_ROLE.excluded,
+        ).length,
       },
       computedCategory,
       computedStage,
@@ -231,6 +238,8 @@ export async function recomputeProject(
       currentStage: state.currentStage,
       earliestEventDate: state.earliestEventDate,
       latestEventDate: state.latestEventDate,
+      infillStartDate: state.infillStartDate,
+      latestInfillActivityDate: state.latestInfillActivityDate,
       estimatedUnits: state.estimatedUnits,
       estimatedConstructionValue: state.estimatedConstructionValue,
       marketReviewRequired: state.marketReviewRequired,

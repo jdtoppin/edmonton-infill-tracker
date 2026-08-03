@@ -25,6 +25,7 @@ import {
   recomputeProject,
   setProjectManualOverride,
 } from "../../src/services/project-intelligence";
+import { getProjectDetail } from "../../src/services/project-read-model";
 
 const hasDatabase = Boolean(process.env.DATABASE_URL);
 
@@ -193,6 +194,8 @@ describe.skipIf(!hasDatabase)("persisted project intelligence", () => {
     });
     expect(project.earliestEventDate?.toISOString()).toBe("2026-01-15T00:00:00.000Z");
     expect(project.latestEventDate?.toISOString()).toBe("2026-08-01T00:00:00.000Z");
+    expect(project.infillStartDate?.toISOString()).toBe("2026-01-15T00:00:00.000Z");
+    expect(project.latestInfillActivityDate?.toISOString()).toBe("2026-08-01T00:00:00.000Z");
 
     await db.permitEvent.update({
       where: { id: buildingPermitId },
@@ -211,6 +214,52 @@ describe.skipIf(!hasDatabase)("persisted project intelligence", () => {
       "BUILDING_PERMIT",
       "OCCUPANCY",
     ]);
+  });
+
+  it("uses the stable tracker observation when a City civic date is later removed", async () => {
+    const observedAt = new Date("2026-08-02T13:30:04.486Z");
+    const permit = await db.permitEvent.create({
+      data: {
+        sourceProvider: provider,
+        sourceDataset: "development",
+        sourceRecordIdentifier: "date-removed-accessory-building",
+        permitType: "Accessory Building Combo Permit",
+        status: "Other",
+        workDescription: "To construct an Accessory Building (mutual Garage).",
+        issueDate: new Date("2026-07-20T00:00:00.000Z"),
+        addressId: firstAddressId,
+        neighbourhoodId,
+        rawSourcePayload: { synthetic: true, kind: "date-removed" },
+        createdAt: observedAt,
+        importedAt: observedAt,
+      },
+    });
+
+    try {
+      expect(await matchPermitEvent(db, permit.id)).toMatchObject({
+        disposition: "matched",
+        projectId,
+      });
+      await db.permitEvent.update({ where: { id: permit.id }, data: { issueDate: null } });
+      await db.$transaction((transaction) => recomputeProject(transaction, projectId));
+
+      const link = await db.projectEvent.findUniqueOrThrow({
+        where: { permitEventId: permit.id },
+      });
+      expect(link.eventDate).toEqual(new Date("2026-08-02T00:00:00.000Z"));
+
+      const detail = await getProjectDetail(db, projectId);
+      expect(detail?.timeline).toContainEqual(
+        expect.objectContaining({
+          permitEventId: permit.id,
+          milestoneType: "OBSERVED",
+          date: "2026-08-02",
+        }),
+      );
+    } finally {
+      await db.permitEvent.delete({ where: { id: permit.id } });
+      await db.$transaction((transaction) => recomputeProject(transaction, projectId));
+    }
   });
 
   it("requires an admin and preserves overrides through event reassignment recomputation", async () => {

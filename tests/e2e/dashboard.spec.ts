@@ -33,7 +33,7 @@ test("@responsive shows the live permit intelligence overview", async ({ page })
   await expect(
     page.getByRole("heading", { name: "Follow infill from first permit to occupancy." }),
   ).toBeVisible();
-  await expect(page.getByText("New projects detected", { exact: true })).toBeVisible();
+  await expect(page.getByText("New infill starts", { exact: true })).toBeVisible();
   await expect(page.getByRole("heading", { name: "High-confidence projects" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Project activity map" })).toBeVisible();
   const overviewMap = page.locator("[data-overview-map]");
@@ -91,11 +91,11 @@ test("@responsive filters projects and opens a normalized permit timeline", asyn
   expect(await activeListView.evaluate((element) => getComputedStyle(element).color)).toBe(
     "rgb(23, 100, 115)",
   );
-  const earliestPermitLabel = page
+  const infillStartLabel = page
     .locator("th:visible a, dt:visible")
-    .filter({ hasText: /^Earliest permit$/ })
+    .filter({ hasText: /^Infill start$/ })
     .first();
-  await expect(earliestPermitLabel).toBeVisible();
+  await expect(infillStartLabel).toBeVisible();
   const projectLink = page
     .locator('a[href^="/projects/"]:visible')
     .filter({ hasText: "99901" })

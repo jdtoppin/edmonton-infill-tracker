@@ -8,6 +8,12 @@ import {
   RunStatus,
   UserRole,
 } from "../../generated/prisma/enums";
+import {
+  assessInfillPermitEvent,
+  INFILL_EVENT_ROLE,
+  type InfillEventAssessment,
+} from "../../domain/infill-classification";
+import { configuredInfillScoringConfig } from "../../domain/infill-scoring-config";
 import { buildProjectMilestones } from "../../domain/project-timeline";
 import {
   civilDateStart,
@@ -35,8 +41,8 @@ const projectListSelect = {
   title: true,
   category: true,
   currentStage: true,
-  earliestEventDate: true,
-  latestEventDate: true,
+  infillStartDate: true,
+  latestInfillActivityDate: true,
   estimatedUnits: true,
   estimatedConstructionValue: true,
   infillConfidence: true,
@@ -74,12 +80,20 @@ const projectListSelect = {
 type ProjectListRecord = Prisma.ProjectGetPayload<{ select: typeof projectListSelect }>;
 
 const projectActivitySelect = {
+  id: true,
   eventDate: true,
   permitEvent: {
     select: {
+      sourceDataset: true,
       permitType: true,
       permitSubtype: true,
       status: true,
+      workDescription: true,
+      buildingType: true,
+      unitsAdded: true,
+      applicationDate: true,
+      issueDate: true,
+      occupancyGrantedDate: true,
     },
   },
   project: { select: projectListSelect },
@@ -90,8 +104,8 @@ const projectDetailSelect = {
   title: true,
   category: true,
   currentStage: true,
-  earliestEventDate: true,
-  latestEventDate: true,
+  infillStartDate: true,
+  latestInfillActivityDate: true,
   estimatedUnits: true,
   estimatedConstructionValue: true,
   marketListingStatus: true,
@@ -133,6 +147,7 @@ const projectDetailSelect = {
           applicationDate: true,
           issueDate: true,
           occupancyGrantedDate: true,
+          createdAt: true,
           status: true,
           workDescription: true,
           buildingType: true,
@@ -164,8 +179,8 @@ export type ProjectListItem = {
   stage: ProjectStage;
   stageLabel: string;
   confidence: number;
-  firstDetectedDate: string | null;
-  latestEventDate: string | null;
+  infillStartDate: string | null;
+  latestInfillActivityDate: string | null;
   units: number | null;
   constructionValue: number | null;
   reviewStatus: ReviewStatus;
@@ -200,7 +215,7 @@ export type ProjectMarker = Pick<
   | "stage"
   | "stageLabel"
   | "confidence"
-  | "latestEventDate"
+  | "latestInfillActivityDate"
   | "units"
   | "constructionValue"
   | "latestEvent"
@@ -248,8 +263,8 @@ export type ProjectDetail = {
   stageLabel: string;
   confidence: number;
   confidenceExplanation: ReturnType<typeof parseConfidenceExplanation>;
-  firstDetectedDate: string | null;
-  latestEventDate: string | null;
+  infillStartDate: string | null;
+  latestInfillActivityDate: string | null;
   units: number | null;
   constructionValue: number | null;
   reviewStatus: ReviewStatus;
@@ -268,6 +283,8 @@ export type LifecycleCounts = { development: number; building: number; occupancy
 export type DashboardOverview = {
   dataMode: ReadModelDataMode;
   generatedAt: string;
+  activeSince: string;
+  activeThrough: string;
   newProjects: Record<DashboardPeriod, number>;
   lifecycle: Record<DashboardPeriod, LifecycleCounts>;
   categoryBreakdown: Array<{ category: ProjectCategory; label: string; count: number }>;
@@ -373,7 +390,7 @@ export function buildPublicProjectWhere(filters: ProjectFilters): Prisma.Project
     ...(filters.minConfidence !== undefined
       ? { infillConfidence: { gte: filters.minConfidence } }
       : {}),
-    ...(activityDate ? { latestEventDate: activityDate } : {}),
+    ...(activityDate ? { latestInfillActivityDate: activityDate } : {}),
     ...(constructionValue ? { estimatedConstructionValue: constructionValue } : {}),
     ...(estimatedUnits ? { estimatedUnits } : {}),
     ...(filters.q
@@ -405,7 +422,7 @@ function projectOrderBy(filters: ProjectFilters): Prisma.ProjectOrderByWithRelat
   const primary: Prisma.ProjectOrderByWithRelationInput = (() => {
     switch (filters.sort) {
       case "earliestEventDate":
-        return { earliestEventDate: { sort: direction, nulls: "last" } };
+        return { infillStartDate: { sort: direction, nulls: "last" } };
       case "confidence":
         return { infillConfidence: direction };
       case "value":
@@ -423,7 +440,7 @@ function projectOrderBy(filters: ProjectFilters): Prisma.ProjectOrderByWithRelat
       case "reviewStatus":
         return { reviewStatus: direction };
       default:
-        return { latestEventDate: { sort: direction, nulls: "last" } };
+        return { latestInfillActivityDate: { sort: direction, nulls: "last" } };
     }
   })();
   return [primary, { id: "asc" }];
@@ -447,8 +464,8 @@ function serializeProjectListRecord(record: ProjectListRecord): ProjectListItem 
     stage: record.currentStage,
     stageLabel: PROJECT_STAGE_LABELS[record.currentStage],
     confidence: record.infillConfidence,
-    firstDetectedDate: serializeDate(record.earliestEventDate),
-    latestEventDate: serializeDate(record.latestEventDate),
+    infillStartDate: serializeDate(record.infillStartDate),
+    latestInfillActivityDate: serializeDate(record.latestInfillActivityDate),
     units: record.estimatedUnits,
     constructionValue: serializeDecimal(record.estimatedConstructionValue),
     reviewStatus: record.reviewStatus,
@@ -609,8 +626,8 @@ function serializeProjectDetail(
       record.confidenceExplanation,
       record.infillConfidence,
     ),
-    firstDetectedDate: serializeDate(record.earliestEventDate),
-    latestEventDate: serializeDate(record.latestEventDate),
+    infillStartDate: serializeDate(record.infillStartDate),
+    latestInfillActivityDate: serializeDate(record.latestInfillActivityDate),
     units: record.estimatedUnits,
     constructionValue: serializeDecimal(record.estimatedConstructionValue),
     reviewStatus: record.reviewStatus,
@@ -638,10 +655,6 @@ export async function getProjectDetail(
   return record ? serializeProjectDetail(record, "live") : null;
 }
 
-function ago(now: Date, days: DashboardPeriod): Date {
-  return new Date(now.getTime() - days * dayMilliseconds);
-}
-
 function edmontonCivilDate(now: Date, daysBefore = 0): Date {
   const parts = new Intl.DateTimeFormat("en-CA", {
     timeZone: "America/Edmonton",
@@ -661,29 +674,41 @@ async function lifecycleCounts(
   through: Date,
 ): Promise<LifecycleCounts> {
   const linkedToPublicProject = { project: publicBaseWhere };
-  const [development, building, occupancy] = await Promise.all([
-    db.permitEvent.count({
-      where: {
-        sourceDataset: "development",
-        issueDate: { gte: since, lte: through },
-        projectEvent: linkedToPublicProject,
-      },
-    }),
-    db.permitEvent.count({
-      where: {
-        sourceDataset: "building",
-        issueDate: { gte: since, lte: through },
-        projectEvent: linkedToPublicProject,
-      },
-    }),
-    db.permitEvent.count({
-      where: {
-        sourceDataset: "building",
-        occupancyGrantedDate: { gte: since, lte: through },
-        projectEvent: linkedToPublicProject,
-      },
-    }),
-  ]);
+  const candidates = await db.permitEvent.findMany({
+    where: {
+      projectEvent: linkedToPublicProject,
+      OR: [
+        { issueDate: { gte: since, lte: through } },
+        { occupancyGrantedDate: { gte: since, lte: through } },
+      ],
+    },
+    select: {
+      sourceDataset: true,
+      permitType: true,
+      permitSubtype: true,
+      status: true,
+      workDescription: true,
+      buildingType: true,
+      unitsAdded: true,
+      applicationDate: true,
+      issueDate: true,
+      occupancyGrantedDate: true,
+    },
+  });
+  const relevant = candidates.filter((event) => {
+    const role = assessInfillPermitEvent(event).role;
+    return role !== INFILL_EVENT_ROLE.propertyOnly && role !== INFILL_EVENT_ROLE.excluded;
+  });
+  const inRange = (date: Date | null) => Boolean(date && date >= since && date <= through);
+  const development = relevant.filter(
+    (event) => event.sourceDataset === "development" && inRange(event.issueDate),
+  ).length;
+  const building = relevant.filter(
+    (event) => event.sourceDataset === "building" && inRange(event.issueDate),
+  ).length;
+  const occupancy = relevant.filter(
+    (event) => event.sourceDataset === "building" && inRange(event.occupancyGrantedDate),
+  ).length;
   return { development, building, occupancy };
 }
 
@@ -691,33 +716,56 @@ async function recentProjectsForPermitText(
   db: PrismaClient,
   terms: string[],
   limit: number,
+  accepts: (assessment: InfillEventAssessment) => boolean,
   projectWhere: Prisma.ProjectWhereInput = publicBaseWhere,
+  eventDateRange?: Prisma.DateTimeFilter,
 ): Promise<ProjectListItem[]> {
-  const records = await db.projectEvent.findMany({
-    where: {
-      project: projectWhere,
-      permitEvent: {
-        OR: terms.flatMap((term) => [
-          { permitType: { contains: term, mode: "insensitive" as const } },
-          { permitSubtype: { contains: term, mode: "insensitive" as const } },
-          { workDescription: { contains: term, mode: "insensitive" as const } },
-        ]),
+  const seenProjects = new Set<string>();
+  const projects: ProjectListItem[] = [];
+  const pageSize = Math.max(limit * 20, 100);
+  let cursor: string | undefined;
+
+  while (projects.length < limit) {
+    const records = await db.projectEvent.findMany({
+      where: {
+        project: projectWhere,
+        ...(eventDateRange ? { eventDate: eventDateRange } : {}),
+        permitEvent: {
+          OR: terms.flatMap((term) => [
+            { permitType: { contains: term, mode: "insensitive" as const } },
+            { permitSubtype: { contains: term, mode: "insensitive" as const } },
+            { workDescription: { contains: term, mode: "insensitive" as const } },
+          ]),
+        },
       },
-    },
-    select: projectActivitySelect,
-    orderBy: [{ eventDate: "desc" }, { permitEventId: "asc" }],
-    take: limit,
-  });
-  return records.map((record) => ({
-    ...serializeProjectListRecord(record.project),
-    latestEventDate: serializeDate(record.eventDate),
-    latestEvent: {
-      date: serializeDate(record.eventDate)!,
-      permitType: record.permitEvent.permitType,
-      permitSubtype: record.permitEvent.permitSubtype,
-      status: record.permitEvent.status,
-    },
-  }));
+      select: projectActivitySelect,
+      orderBy: [{ eventDate: "desc" }, { id: "asc" }],
+      ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+      take: pageSize,
+    });
+
+    for (const record of records) {
+      if (!accepts(assessInfillPermitEvent(record.permitEvent))) continue;
+      if (seenProjects.has(record.project.id)) continue;
+      seenProjects.add(record.project.id);
+      projects.push({
+        ...serializeProjectListRecord(record.project),
+        latestEvent: {
+          date: serializeDate(record.eventDate)!,
+          permitType: record.permitEvent.permitType,
+          permitSubtype: record.permitEvent.permitSubtype,
+          status: record.permitEvent.status,
+        },
+      });
+      if (projects.length === limit) break;
+    }
+
+    if (records.length < pageSize) break;
+    cursor = records.at(-1)?.id;
+    if (!cursor) break;
+  }
+
+  return projects;
 }
 
 export async function getDashboardOverview(
@@ -726,6 +774,11 @@ export async function getDashboardOverview(
 ): Promise<DashboardOverview> {
   const periods = [7, 30, 90] as const;
   const today = edmontonCivilDate(now);
+  const activeSince = edmontonCivilDate(now, configuredInfillScoringConfig().maxEpisodeGapDays);
+  const activeProjectWhere: Prisma.ProjectWhereInput = {
+    AND: [publicBaseWhere, { latestInfillActivityDate: { gte: activeSince, lte: today } }],
+  };
+  const activeEventDateRange: Prisma.DateTimeFilter = { gte: activeSince, lte: today };
   const [
     newProjectValues,
     lifecycleValues,
@@ -741,39 +794,69 @@ export async function getDashboardOverview(
   ] = await Promise.all([
     Promise.all(
       periods.map((period) =>
-        db.project.count({ where: { ...publicBaseWhere, createdAt: { gte: ago(now, period) } } }),
+        db.project.count({
+          where: {
+            ...publicBaseWhere,
+            infillStartDate: {
+              gte: edmontonCivilDate(now, period - 1),
+              lte: today,
+            },
+          },
+        }),
       ),
     ),
     Promise.all(
       periods.map((period) => lifecycleCounts(db, edmontonCivilDate(now, period - 1), today)),
     ),
     db.project.groupBy({ by: ["category"], where: publicBaseWhere, _count: { _all: true } }),
-    db.project.groupBy({ by: ["neighbourhoodId"], where: publicBaseWhere, _count: { _all: true } }),
+    db.project.groupBy({
+      by: ["neighbourhoodId"],
+      where: activeProjectWhere,
+      _count: { _all: true },
+    }),
     db.project.findMany({
-      where: { ...publicBaseWhere, infillConfidence: { gte: 80 } },
+      where: { AND: [activeProjectWhere, { infillConfidence: { gte: 80 } }] },
       select: projectListSelect,
       orderBy: [
         { infillConfidence: "desc" },
-        { latestEventDate: { sort: "desc", nulls: "last" } },
+        { latestInfillActivityDate: { sort: "desc", nulls: "last" } },
         { id: "asc" },
       ],
       take: 5,
     }),
-    recentProjectsForPermitText(db, ["demolition", "demolish"], 5),
-    recentProjectsForPermitText(db, ["new construction", "new dwelling", "building"], 5, {
-      ...publicBaseWhere,
-      category: {
-        in: [
-          ProjectCategory.PROBABLE_NEW_DETACHED_INFILL,
-          ProjectCategory.PROBABLE_NEW_DETACHED_INFILL_FOR_RESALE,
-          ProjectCategory.PROBABLE_SEMI_DETACHED_INFILL,
-          ProjectCategory.PROBABLE_DUPLEX,
-          ProjectCategory.PROBABLE_ROW_HOUSING,
-          ProjectCategory.PROBABLE_GARDEN_SUITE,
+    recentProjectsForPermitText(
+      db,
+      ["demolition", "demolish"],
+      5,
+      (assessment) => assessment.demolition,
+      activeProjectWhere,
+      activeEventDateRange,
+    ),
+    recentProjectsForPermitText(
+      db,
+      ["new construction", "new dwelling", "construct", "erect", "building"],
+      5,
+      (assessment) => assessment.newResidentialConstruction,
+      {
+        AND: [
+          activeProjectWhere,
+          {
+            category: {
+              in: [
+                ProjectCategory.PROBABLE_NEW_DETACHED_INFILL,
+                ProjectCategory.PROBABLE_NEW_DETACHED_INFILL_FOR_RESALE,
+                ProjectCategory.PROBABLE_SEMI_DETACHED_INFILL,
+                ProjectCategory.PROBABLE_DUPLEX,
+                ProjectCategory.PROBABLE_ROW_HOUSING,
+                ProjectCategory.PROBABLE_GARDEN_SUITE,
+              ],
+              not: ProjectCategory.NOT_RELEVANT,
+            },
+          },
         ],
-        not: ProjectCategory.NOT_RELEVANT,
       },
-    }),
+      activeEventDateRange,
+    ),
     db.importRun.findFirst({
       orderBy: [{ createdAt: "desc" }, { id: "desc" }],
       select: {
@@ -814,7 +897,7 @@ export async function getDashboardOverview(
         neighbourhoodId: { in: neighbourhoodIds },
         latitude: { not: null },
         longitude: { not: null },
-        projects: { some: publicBaseWhere },
+        projects: { some: activeProjectWhere },
       },
       _avg: { latitude: true, longitude: true },
     }),
@@ -893,6 +976,8 @@ export async function getDashboardOverview(
   return {
     dataMode: "live",
     generatedAt: now.toISOString(),
+    activeSince: serializeDate(activeSince)!,
+    activeThrough: serializeDate(today)!,
     newProjects: { 7: newProjectValues[0], 30: newProjectValues[1], 90: newProjectValues[2] },
     lifecycle: { 7: lifecycleValues[0], 30: lifecycleValues[1], 90: lifecycleValues[2] },
     categoryBreakdown: categoryGroups
@@ -1104,8 +1189,8 @@ function previewProjects(now = new Date()): PreviewProject[] {
       stage: record.stage,
       stageLabel: PROJECT_STAGE_LABELS[record.stage],
       confidence: record.confidence,
-      firstDetectedDate: previewDate(now, record.daysBefore + 14),
-      latestEventDate: latestDate,
+      infillStartDate: previewDate(now, record.daysBefore + 14),
+      latestInfillActivityDate: latestDate,
       units: record.units,
       constructionValue: record.value,
       reviewStatus: ReviewStatus.CONFIRMED,
@@ -1141,7 +1226,7 @@ function previewProjects(now = new Date()): PreviewProject[] {
         marketListingStatus: "NOT_CHECKED",
         marketLastCheckedAt: null,
         marketReviewRequired: false,
-        createdAt: `${listItem.firstDetectedDate}T12:00:00.000Z`,
+        createdAt: `${listItem.infillStartDate}T12:00:00.000Z`,
         updatedAt: `${latestDate}T12:00:00.000Z`,
         timeline: [
           {
@@ -1162,7 +1247,7 @@ function previewProjects(now = new Date()): PreviewProject[] {
             buildingType: null,
             units: record.units,
             constructionValue: record.value,
-            applicationDate: listItem.firstDetectedDate,
+            applicationDate: listItem.infillStartDate,
             issueDate: latestDate,
             occupancyGrantedDate: null,
             source: { label: "Synthetic preview", datasetUrl: null, recordUrl: null },
@@ -1188,8 +1273,12 @@ function previewMatches(project: ProjectListItem, filters: ProjectFilters): bool
     (!filters.reviewStatuses.length ||
       filters.reviewStatuses.some((status) => status === project.reviewStatus)) &&
     (filters.minConfidence === undefined || project.confidence >= filters.minConfidence) &&
-    (!filters.from || !project.latestEventDate || project.latestEventDate >= filters.from) &&
-    (!filters.to || !project.latestEventDate || project.latestEventDate <= filters.to) &&
+    (!filters.from ||
+      (project.latestInfillActivityDate !== null &&
+        project.latestInfillActivityDate >= filters.from)) &&
+    (!filters.to ||
+      (project.latestInfillActivityDate !== null &&
+        project.latestInfillActivityDate <= filters.to)) &&
     (filters.minValue === undefined ||
       (project.constructionValue !== null && project.constructionValue >= filters.minValue)) &&
     (filters.maxValue === undefined ||
@@ -1207,8 +1296,8 @@ function comparePreviewProjects(filters: ProjectFilters) {
       ProjectFilters["sort"],
       (item: ProjectListItem) => string | number | null
     > = {
-      latestEventDate: (item) => item.latestEventDate,
-      earliestEventDate: (item) => item.firstDetectedDate,
+      latestEventDate: (item) => item.latestInfillActivityDate,
+      earliestEventDate: (item) => item.infillStartDate,
       confidence: (item) => item.confidence,
       value: (item) => item.constructionValue,
       units: (item) => item.units,
@@ -1298,14 +1387,18 @@ export function getPreviewDashboardOverview(now = new Date()): DashboardOverview
   const countWithin = (days: DashboardPeriod) =>
     items.filter(
       (item) =>
-        item.latestEventDate !== null &&
-        item.latestEventDate >=
-          new Date(now.getTime() - days * dayMilliseconds).toISOString().slice(0, 10),
+        item.infillStartDate !== null &&
+        item.infillStartDate >=
+          new Date(now.getTime() - (days - 1) * dayMilliseconds).toISOString().slice(0, 10),
     ).length;
   const neighbourhoods = getPreviewFilterOptions(now).neighbourhoods;
   return {
     dataMode: "preview",
     generatedAt: now.toISOString(),
+    activeSince: serializeDate(
+      edmontonCivilDate(now, configuredInfillScoringConfig().maxEpisodeGapDays),
+    )!,
+    activeThrough: serializeDate(edmontonCivilDate(now))!,
     newProjects: { 7: countWithin(7), 30: countWithin(30), 90: countWithin(90) },
     lifecycle: {
       7: { development: 0, building: 1, occupancy: 0 },
