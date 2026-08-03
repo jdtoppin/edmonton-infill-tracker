@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { ArrowRight, MapPin } from "lucide-react";
+import { AdminPagination } from "@/components/admin/admin-pagination";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { PageHeading } from "@/components/workspace/page-header";
@@ -24,14 +25,21 @@ const tabs = [
   { value: "all", label: "All active" },
 ] as const;
 type Tab = (typeof tabs)[number]["value"];
+const PAGE_SIZE = 25;
+
+function requestedPage(value: string | undefined): number {
+  const parsed = Number(value);
+  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : 1;
+}
 
 export default async function ReviewsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ queue?: string }>;
+  searchParams: Promise<{ page?: string; queue?: string }>;
 }) {
   const user = await requireAdmin("/admin/reviews");
-  const requested = (await searchParams).queue;
+  const incoming = await searchParams;
+  const requested = incoming.queue;
   const queue: Tab = tabs.some((tab) => tab.value === requested) ? (requested as Tab) : "pending";
   const where: Prisma.ProjectWhereInput = {
     mergedIntoId: null,
@@ -40,29 +48,34 @@ export default async function ReviewsPage({
     ...(queue === "corrected" ? { reviewStatus: ReviewStatus.CORRECTED } : {}),
   };
   const db = await getDb();
-  const [summary, projects] = await Promise.all([
+  const [summary, total] = await Promise.all([
     getAdminProjectSummary(db, user.id),
-    db.project.findMany({
-      where,
-      orderBy: [
-        { marketReviewRequired: "desc" },
-        { infillConfidence: "asc" },
-        { latestEventDate: "desc" },
-      ],
-      take: 50,
-      select: {
-        id: true,
-        address: { select: { normalizedStreetAddress: true } },
-        neighbourhood: { select: { name: true } },
-        category: true,
-        currentStage: true,
-        infillConfidence: true,
-        reviewStatus: true,
-        marketReviewRequired: true,
-        updatedAt: true,
-      },
-    }),
+    db.project.count({ where }),
   ]);
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  const page = Math.min(requestedPage(incoming.page), totalPages);
+  const projects = await db.project.findMany({
+    where,
+    orderBy: [
+      { marketReviewRequired: "desc" },
+      { infillConfidence: "asc" },
+      { latestEventDate: "desc" },
+      { id: "asc" },
+    ],
+    skip: (page - 1) * PAGE_SIZE,
+    take: PAGE_SIZE,
+    select: {
+      id: true,
+      address: { select: { normalizedStreetAddress: true } },
+      neighbourhood: { select: { name: true } },
+      category: true,
+      currentStage: true,
+      infillConfidence: true,
+      reviewStatus: true,
+      marketReviewRequired: true,
+      updatedAt: true,
+    },
+  });
   const counts: Record<Tab, number | null> = {
     pending: summary.pendingReview,
     market: summary.marketReviewRequired,
@@ -71,32 +84,40 @@ export default async function ReviewsPage({
   };
 
   return (
-    <section>
+    <section className="space-y-6">
       <PageHeading
         eyebrow="Human-in-the-loop classification"
         title="Project review queue"
         description="Inspect computed evidence, correct category or stage, reassign permit events, merge duplicates, and exclude irrelevant projects. Every change is tied to your administrator account."
       />
-      <nav className="mb-4 flex gap-2 overflow-x-auto" aria-label="Review queues">
+      <nav className="flex gap-2 overflow-x-auto pb-1" aria-label="Review queues">
         {tabs.map((tab) => (
           <Link
             key={tab.value}
             href={`/admin/reviews?queue=${tab.value}`}
             aria-current={queue === tab.value ? "page" : undefined}
             className={cn(
-              "inline-flex min-h-10 shrink-0 items-center gap-2 rounded-lg border px-3 text-xs font-semibold no-underline",
+              "inline-flex min-h-10 shrink-0 items-center gap-2 rounded-lg border px-3 text-xs font-semibold no-underline transition-[background-color,border-color,color,box-shadow] outline-none focus-visible:ring-2 focus-visible:ring-[var(--teal)] focus-visible:ring-offset-2",
               queue === tab.value
-                ? "border-[var(--spruce)] bg-[var(--spruce)] text-white"
-                : "border-[var(--border)] bg-white text-[var(--muted)]",
+                ? "border-[#8bb9bf] bg-[var(--teal-soft)] text-[var(--teal)] shadow-sm"
+                : "border-[var(--border)] bg-white text-[var(--muted)] hover:border-[#b5d5d9] hover:bg-[#f7f9f7] hover:text-[var(--ink)]",
             )}
           >
             <span>{tab.label}</span>
             {counts[tab.value] !== null && (
-              <span className="rounded-full bg-white/15 px-1.5">{counts[tab.value]}</span>
+              <span className="rounded-full bg-white/60 px-1.5">{counts[tab.value]}</span>
             )}
           </Link>
         ))}
       </nav>
+      <div className="rounded-xl border border-[#edd0b0] bg-[#fff7ec] p-4 text-xs leading-5 text-[#70491f]">
+        <strong className="block text-sm text-[var(--spruce)]">What market follow-up means</strong>
+        <p className="mt-1 mb-0">
+          A project enters this queue after an occupancy milestone is recorded, so an administrator
+          can later compare it with an authorized public real-estate listing source. It does not
+          mean occupancy approval is missing or that the building has a safety problem.
+        </p>
+      </div>
       <div className="overflow-hidden rounded-xl border border-[var(--border)] bg-white">
         <div className="divide-y divide-[var(--border)]">
           {projects.map((project) => (
@@ -138,11 +159,14 @@ export default async function ReviewsPage({
           )}
         </div>
       </div>
-      {projects.length === 50 && (
-        <p className="mt-3 text-xs text-[var(--muted)]">
-          Showing the first 50 records. Work through this queue before loading more.
-        </p>
-      )}
+      <AdminPagination
+        basePath="/admin/reviews"
+        page={page}
+        pageSize={PAGE_SIZE}
+        total={total}
+        itemLabel="Projects"
+        preservedParams={{ queue }}
+      />
     </section>
   );
 }

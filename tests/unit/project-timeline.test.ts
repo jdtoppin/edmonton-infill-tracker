@@ -7,6 +7,26 @@ import {
 } from "../../src/domain/project-timeline";
 
 describe("project timeline milestones and stage precedence", () => {
+  it("uses the persisted project event date when a source record has no dated milestone", () => {
+    const eventDate = new Date("2026-07-14T00:00:00.000Z");
+    const milestones = buildProjectMilestones([
+      {
+        id: "dateless-development-permit",
+        sourceDataset: "development",
+        permitType: "Development Permit",
+        eventDate,
+      },
+    ]);
+
+    expect(milestones).toEqual([
+      expect.objectContaining({
+        permitEventId: "dateless-development-permit",
+        type: "DEVELOPMENT_PERMIT",
+        date: eventDate,
+      }),
+    ]);
+  });
+
   it("orders applications, permits, and occupancy chronologically", () => {
     const events = [
       {

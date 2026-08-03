@@ -271,7 +271,14 @@ export type DashboardOverview = {
   newProjects: Record<DashboardPeriod, number>;
   lifecycle: Record<DashboardPeriod, LifecycleCounts>;
   categoryBreakdown: Array<{ category: ProjectCategory; label: string; count: number }>;
-  neighbourhoodBreakdown: Array<{ id: string; cityId: string; name: string; count: number }>;
+  neighbourhoodBreakdown: Array<{
+    id: string;
+    cityId: string;
+    name: string;
+    count: number;
+    latitude: number | null;
+    longitude: number | null;
+  }>;
   highConfidenceProjects: ProjectListItem[];
   recentDemolitions: ProjectListItem[];
   recentConstruction: ProjectListItem[];
@@ -551,7 +558,10 @@ function serializeProjectDetail(
   record: ProjectDetailRecord,
   dataMode: ReadModelDataMode,
 ): ProjectDetail {
-  const permits = record.events.map(({ permitEvent }) => permitEvent);
+  const permits = record.events.map(({ eventDate, permitEvent }) => ({
+    ...permitEvent,
+    eventDate,
+  }));
   const permitsById = new Map(permits.map((permit) => [permit.id, permit]));
   const timeline = buildProjectMilestones(permits).map((milestone): ProjectTimelineEntry => {
     const permit = permitsById.get(milestone.permitEventId)!;
@@ -793,11 +803,38 @@ export async function getDashboardOverview(
   ]);
 
   const neighbourhoodIds = neighbourhoodGroups.map(({ neighbourhoodId }) => neighbourhoodId);
-  const neighbourhoods = await db.neighbourhood.findMany({
-    where: { id: { in: neighbourhoodIds } },
-    select: { id: true, cityNeighbourhoodId: true, name: true },
-  });
+  const [neighbourhoods, neighbourhoodCoordinates] = await Promise.all([
+    db.neighbourhood.findMany({
+      where: { id: { in: neighbourhoodIds } },
+      select: { id: true, cityNeighbourhoodId: true, name: true },
+    }),
+    db.address.groupBy({
+      by: ["neighbourhoodId"],
+      where: {
+        neighbourhoodId: { in: neighbourhoodIds },
+        latitude: { not: null },
+        longitude: { not: null },
+        projects: { some: publicBaseWhere },
+      },
+      _avg: { latitude: true, longitude: true },
+    }),
+  ]);
   const neighbourhoodById = new Map(neighbourhoods.map((item) => [item.id, item]));
+  const coordinatesByNeighbourhoodId = new Map(
+    neighbourhoodCoordinates.flatMap((item) =>
+      item.neighbourhoodId
+        ? [
+            [
+              item.neighbourhoodId,
+              {
+                latitude: serializeDecimal(item._avg.latitude),
+                longitude: serializeDecimal(item._avg.longitude),
+              },
+            ] as const,
+          ]
+        : [],
+    ),
+  );
   const warnings: DashboardOverview["warnings"] = [];
 
   if (!latestImport) {
@@ -875,6 +912,8 @@ export async function getDashboardOverview(
                 cityId: neighbourhood.cityNeighbourhoodId,
                 name: neighbourhood.name,
                 count: item._count._all,
+                latitude: coordinatesByNeighbourhoodId.get(neighbourhood.id)?.latitude ?? null,
+                longitude: coordinatesByNeighbourhoodId.get(neighbourhood.id)?.longitude ?? null,
               },
             ]
           : [];
@@ -1277,12 +1316,27 @@ export function getPreviewDashboardOverview(now = new Date()): DashboardOverview
       const count = items.filter((item) => item.category === category).length;
       return count ? [{ category, label: PROJECT_CATEGORY_LABELS[category], count }] : [];
     }),
-    neighbourhoodBreakdown: neighbourhoods.map(({ id, cityId, name, projectCount }) => ({
-      id,
-      cityId,
-      name,
-      count: projectCount,
-    })),
+    neighbourhoodBreakdown: neighbourhoods.map(({ id, cityId, name, projectCount }) => {
+      const projects = items.filter((project) => project.neighbourhood.id === id);
+      const located = projects.filter(
+        (project): project is PreviewProject & { latitude: number; longitude: number } =>
+          project.latitude !== null && project.longitude !== null,
+      );
+      return {
+        id,
+        cityId,
+        name,
+        count: projectCount,
+        latitude:
+          located.length === 0
+            ? null
+            : located.reduce((total, project) => total + project.latitude, 0) / located.length,
+        longitude:
+          located.length === 0
+            ? null
+            : located.reduce((total, project) => total + project.longitude, 0) / located.length,
+      };
+    }),
     highConfidenceProjects: items.filter((item) => item.confidence >= 80),
     recentDemolitions: [items[0]],
     recentConstruction: items,

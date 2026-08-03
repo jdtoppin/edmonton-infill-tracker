@@ -174,7 +174,9 @@ export default async function ProjectDetailPage({
                 markers={[marker]}
                 mapboxToken={process.env.NEXT_PUBLIC_MAPBOX_TOKEN}
                 mapStyleUrl={process.env.MAPBOX_STYLE_URL}
-                className="min-h-[390px] lg:grid-cols-1 [&>section:last-child]:hidden"
+                initialSelectedId={project.id}
+                showList={false}
+                className="min-h-[390px]"
               />
             </Card>
             <Card className="p-5">

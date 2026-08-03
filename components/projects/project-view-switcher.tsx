@@ -32,10 +32,10 @@ export function ProjectViewSwitcher({ filters }: { filters: ProjectFilters }) {
             href={`/projects?${params.toString()}`}
             aria-current={active ? "page" : undefined}
             className={cn(
-              "inline-flex min-h-9 items-center gap-1.5 rounded-md px-3 text-xs font-semibold no-underline",
+              "inline-flex min-h-9 items-center gap-1.5 rounded-md border px-3 text-xs font-semibold no-underline transition-[background-color,border-color,color,box-shadow] outline-none focus-visible:ring-2 focus-visible:ring-[var(--teal)] focus-visible:ring-offset-2",
               active
-                ? "bg-[var(--spruce)] text-white"
-                : "text-[var(--muted)] hover:bg-[var(--limestone)]",
+                ? "border-[#8bb9bf] bg-[var(--teal-soft)] text-[var(--teal)] shadow-sm"
+                : "border-transparent text-[var(--muted)] hover:bg-[var(--limestone)] hover:text-[var(--ink)]",
             )}
           >
             <Icon size={14} aria-hidden="true" /> {label}

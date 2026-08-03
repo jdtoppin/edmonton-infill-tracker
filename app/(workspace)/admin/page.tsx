@@ -18,11 +18,19 @@ export default async function AdminPage() {
     getAdminProjectSummary(db, user.id),
     getAdminHealth(db),
   ]);
+  const attentionAreaCount = [
+    !health.scheduler.configurationValid || health.scheduler.overdue,
+    health.jobs.expiredLeases > 0,
+    health.dataQuality.quarantinedRecords > 0,
+    health.dataQuality.unmatchedPermitEvents > 0,
+    health.dataQuality.pendingProjectReviews > 0,
+    health.dataQuality.marketReviewsRequired > 0,
+  ].filter(Boolean).length;
   const cards = [
     {
       label: "Pending reviews",
       value: summary.pendingReview,
-      detail: `${summary.marketReviewRequired} occupancy-triggered market follow-ups`,
+      detail: `${summary.marketReviewRequired} ready for a post-occupancy listing comparison`,
       href: "/admin/reviews",
       icon: ScanSearch,
     },
@@ -50,7 +58,7 @@ export default async function AdminPage() {
   ];
 
   return (
-    <section>
+    <section className="space-y-6">
       <PageHeading
         eyebrow="Protected administration"
         title="Operations centre"
@@ -58,7 +66,9 @@ export default async function AdminPage() {
         actions={
           <Badge tone={health.state === "ready" ? "green" : "copper"}>
             <Activity size={13} />{" "}
-            {health.state === "ready" ? "Database state ready" : "Follow-up required"}
+            {health.state === "ready"
+              ? "All tracked checks clear"
+              : `${attentionAreaCount} ${attentionAreaCount === 1 ? "area needs" : "areas need"} attention`}
           </Badge>
         }
       />
@@ -84,10 +94,26 @@ export default async function AdminPage() {
           </Link>
         ))}
       </div>
-      <div className="mt-5 rounded-xl border border-[var(--border)] bg-[#f8faf8] p-4 text-xs leading-5 text-[var(--muted)]">
-        The web UI reports only state it can prove from PostgreSQL. Docker, disk, Caddy, and
-        Tailscale remain host-level concerns and are checked with{" "}
-        <code>./scripts/infill status</code>.
+      <div className="grid gap-4 lg:grid-cols-2">
+        <div className="rounded-xl border border-[#edd0b0] bg-[#fff7ec] p-4 text-xs leading-5 text-[#70491f]">
+          <strong className="block text-sm text-[var(--spruce)]">
+            What market follow-up means
+          </strong>
+          <p className="mt-1 mb-0">
+            After an occupancy milestone is recorded, the project is ready for a later comparison
+            with an authorized public real-estate listing source. This does not mean occupancy is
+            incomplete or that the building has a safety problem.
+          </p>
+        </div>
+        <div className="rounded-xl border border-[var(--border)] bg-[#f8faf8] p-4 text-xs leading-5 text-[var(--muted)]">
+          <strong className="block text-sm text-[var(--spruce)]">About this status</strong>
+          <p className="mt-1 mb-0">
+            The badge counts non-empty review queues and tracked system checks that need attention:
+            classifications, market comparisons, quarantined records, unmatched permits, expired
+            worker leases, or an overdue scheduler. Docker, disk, Caddy, and Tailscale are checked
+            with <code>./scripts/infill status</code>.
+          </p>
+        </div>
       </div>
     </section>
   );

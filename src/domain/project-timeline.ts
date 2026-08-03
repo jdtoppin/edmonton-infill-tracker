@@ -32,6 +32,7 @@ export interface TimelinePermitEvent {
   applicationDate?: Date | null;
   issueDate?: Date | null;
   occupancyGrantedDate?: Date | null;
+  eventDate?: Date | null;
   importedAt?: Date | null;
 }
 
@@ -97,6 +98,7 @@ export function projectEventDate(event: TimelinePermitEvent): Date {
   if (validDate(event.issueDate)) return event.issueDate;
   if (validDate(event.applicationDate)) return event.applicationDate;
   if (validDate(event.occupancyGrantedDate)) return event.occupancyGrantedDate;
+  if (validDate(event.eventDate)) return event.eventDate;
   if (validDate(event.importedAt)) return event.importedAt;
   throw new Error(`Permit event ${event.id} has no usable timeline date.`);
 }

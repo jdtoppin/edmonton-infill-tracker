@@ -30,6 +30,12 @@ test("@responsive shows the live permit intelligence overview", async ({ page })
   ).toBeVisible();
   await expect(page.getByText("New projects detected", { exact: true })).toBeVisible();
   await expect(page.getByRole("heading", { name: "High-confidence projects" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Project activity map" })).toBeVisible();
+  const exploreLink = page.getByRole("link", { name: "Explore projects" });
+  await expect(exploreLink).toBeVisible();
+  expect(await exploreLink.evaluate((element) => getComputedStyle(element).color)).toBe(
+    "rgb(255, 255, 255)",
+  );
   await page.getByRole("button", { name: "30 days" }).click();
   await expect(page.getByRole("button", { name: "30 days" })).toHaveAttribute(
     "aria-pressed",
@@ -43,6 +49,12 @@ test("@responsive filters projects and opens a normalized permit timeline", asyn
     page.getByRole("heading", { name: "Find infill signals across Edmonton." }),
   ).toBeVisible();
   await expect(page).toHaveURL(/q=99901/);
+  const activeListView = page.getByRole("link", { name: "List" });
+  await expect(activeListView).toHaveAttribute("aria-current", "page");
+  expect(await activeListView.evaluate((element) => getComputedStyle(element).color)).toBe(
+    "rgb(23, 100, 115)",
+  );
+  await expect(page.getByText("Earliest permit", { exact: true }).first()).toBeVisible();
   const projectLink = page
     .locator('a[href^="/projects/"]:visible')
     .filter({ hasText: "99901" })
@@ -51,6 +63,23 @@ test("@responsive filters projects and opens a normalized permit timeline", asyn
   await projectLink.click();
   await expect(page.getByRole("heading", { name: "Permit timeline" })).toBeVisible();
   await expect(page.getByRole("heading", { name: /\d+% confidence/ })).toBeVisible();
+});
+
+test("keeps list, map, and split views distinct and bounds the map list", async ({ page }) => {
+  await page.goto("/projects?q=999&view=list");
+  await expect(page.locator("[data-project-map]")).toHaveCount(0);
+  await expect(page.locator("table")).toHaveCount(1);
+
+  await page.goto("/projects?q=999&view=map");
+  await expect(page.locator("[data-project-map]")).toHaveCount(1);
+  await expect(page.locator("[data-project-map-list]")).toHaveCount(0);
+  await expect(page.locator("table")).toHaveCount(0);
+
+  await page.goto("/projects?q=999&view=split");
+  await expect(page.locator("[data-project-map]")).toHaveCount(1);
+  await expect(page.locator("[data-project-map-list]")).toHaveCount(1);
+  await expect(page.locator("table")).toHaveCount(0);
+  expect(await page.locator("[data-project-map-list] ol > li").count()).toBeLessThanOrEqual(26);
 });
 
 test("exports the authenticated filtered project set as CSV", async ({ page }) => {
