@@ -152,7 +152,7 @@ test("@responsive shows the live permit intelligence overview", async ({ page })
 test("drills dashboard neighbourhoods and categories into the matching split-map results", async ({
   page,
 }) => {
-  await page.goto("/?period=30");
+  await page.goto("/?period=all");
 
   const neighbourhoodLink = page.locator('a[href^="/projects?neighbourhood="]').first();
   const neighbourhoodHref = await neighbourhoodLink.getAttribute("href");
@@ -164,11 +164,12 @@ test("drills dashboard neighbourhoods and categories into the matching split-map
   await expect(page.locator('select[name="neighbourhood"]')).toHaveValue(
     neighbourhoodParams.get("neighbourhood")!,
   );
-  await expect(page.locator('input[name="from"]')).toHaveValue(neighbourhoodParams.get("from")!);
+  expect(neighbourhoodParams.get("from")).toBeNull();
+  await expect(page.locator('input[name="from"]')).toHaveValue("");
   await expect(page.locator('input[name="to"]')).toHaveValue(neighbourhoodParams.get("to")!);
   await expect(page.getByText("Core infill area:", { exact: false })).toBeVisible();
 
-  await page.goto("/?period=30");
+  await page.goto("/?period=all");
   const categoryLink = page.locator('a[href^="/projects?category="]').first();
   const categoryHref = await categoryLink.getAttribute("href");
   const categoryParams = new URL(categoryHref!, "http://infill.test").searchParams;
@@ -179,7 +180,8 @@ test("drills dashboard neighbourhoods and categories into the matching split-map
   await expect(page.locator('select[name="category"]')).toHaveValue(
     categoryParams.get("category")!,
   );
-  await expect(page.locator('input[name="from"]')).toHaveValue(categoryParams.get("from")!);
+  expect(categoryParams.get("from")).toBeNull();
+  await expect(page.locator('input[name="from"]')).toHaveValue("");
   await expect(page.locator('input[name="to"]')).toHaveValue(categoryParams.get("to")!);
 });
 
