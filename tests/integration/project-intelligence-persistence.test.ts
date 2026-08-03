@@ -170,6 +170,7 @@ describe.skipIf(!hasDatabase)("persisted project intelligence", () => {
   it("matches physical-address permits idempotently and persists chronological occupancy state", async () => {
     const first = await matchPermitEvent(db, demolitionPermitId);
     expect(first.disposition).toBe("created");
+    if (!first.projectId) throw new Error("Synthetic demolition permit was not matched.");
     projectId = first.projectId;
 
     const second = await matchPermitEvent(db, buildingPermitId);
@@ -342,6 +343,15 @@ describe.skipIf(!hasDatabase)("persisted project intelligence", () => {
       targetProjectId: duplicateProjectId,
       actorUserId: adminUserId,
       reason: "Consolidate the reviewed physical-address duplicate.",
+    });
+    const manuallyMergedLink = await db.projectEvent.findUniqueOrThrow({
+      where: { permitEventId: demolitionPermitId },
+    });
+    expect(manuallyMergedLink.matchReason).toMatchObject({
+      strategy: "manual-project-merge",
+      automated: false,
+      sourceProjectId: projectId,
+      targetProjectId: duplicateProjectId,
     });
     const merged = await db.project.findUniqueOrThrow({ where: { id: projectId } });
     expect(merged).toMatchObject({

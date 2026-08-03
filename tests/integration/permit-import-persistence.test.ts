@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import type { PrismaClient } from "../../src/generated/prisma/client";
+import { ProjectMatchStatus } from "../../src/generated/prisma/enums";
 import { getDb } from "../../src/lib/db";
 import type {
   NormalizedPermitRecord,
@@ -131,6 +132,16 @@ describe.skipIf(!hasDatabase)("permit import persistence", () => {
       dataset: "building",
     });
     expect(initial.counts.created).toBe(1);
+    const created = await db.permitEvent.findUniqueOrThrow({
+      where: {
+        sourceProvider_sourceRecordIdentifier: {
+          sourceProvider: sourceProviderKey,
+          sourceRecordIdentifier,
+        },
+      },
+    });
+    expect(created.addressNormalizationVersion).toBe(2);
+    expect(created.projectMatchStatus).toBe(ProjectMatchStatus.PENDING);
 
     const updated = await runPermitImport({
       provider: new OneRowProvider("revision-2", "2026-07-30"),
@@ -148,6 +159,8 @@ describe.skipIf(!hasDatabase)("permit import persistence", () => {
       },
     });
     expect(stored.sourceDataset).toBe("building");
+    expect(stored.addressNormalizationVersion).toBe(1);
+    expect(stored.projectMatchStatus).toBe(ProjectMatchStatus.PENDING);
     expect(stored.occupancyGrantedDate?.toISOString()).toBe("2026-07-30T00:00:00.000Z");
 
     const unchanged = await runPermitImport({

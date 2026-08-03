@@ -6,6 +6,7 @@ import type { Prisma, PrismaClient } from "../../generated/prisma/client";
 import {
   ProjectActionType,
   ProjectCategory,
+  ProjectMatchStatus,
   ProjectStage,
   ReviewStatus,
   RunStatus,
@@ -18,6 +19,10 @@ import {
   INFILL_AREA_CLASSIFICATION,
   type InfillAreaClassification,
 } from "../../domain/edmonton-core-infill-area";
+import {
+  CURRENT_ADDRESS_NORMALIZATION_VERSION,
+  normalizeEdmontonAddress,
+} from "../../domain/address-normalization";
 import { configuredInfillScoringConfig } from "../../domain/infill-scoring-config";
 import { getSiteAddressKey } from "../../domain/project-matching";
 import {
@@ -206,7 +211,10 @@ function calculateProjectState(project: ProjectForAggregation) {
   );
   const computedCategory = classification.category as ProjectCategory;
   const computedStage = determineProjectStage(episodePermits) as ProjectStage;
-  const category = project.categoryOverride ?? computedCategory;
+  const category =
+    permits.length > 0
+      ? (project.categoryOverride ?? computedCategory)
+      : ProjectCategory.NOT_RELEVANT;
   const occupancyDates = episodePermits
     .map(({ occupancyGrantedDate }) => occupancyGrantedDate)
     .filter((date): date is Date => date !== null);
@@ -217,7 +225,8 @@ function calculateProjectState(project: ProjectForAggregation) {
     computedCategory,
     category,
     computedStage,
-    currentStage: project.stageOverride ?? computedStage,
+    currentStage:
+      permits.length > 0 ? (project.stageOverride ?? computedStage) : ProjectStage.DISCOVERED,
     earliestEventDate: milestones.at(0)?.date ?? null,
     latestEventDate: milestones.at(-1)?.date ?? null,
     infillStartDate: classification.episode.infillStartDate,
@@ -316,20 +325,166 @@ function automaticProjectKey(siteAddressKey: string): string {
   return `address:${createHash("sha256").update(siteAddressKey).digest("hex")}`;
 }
 
-async function matchOnePermit(transaction: Transaction, permitEventId: string) {
-  const permit = await transaction.permitEvent.findUnique({
+async function getPermitForMatching(transaction: Transaction, permitEventId: string) {
+  return transaction.permitEvent.findUnique({
     where: { id: permitEventId },
     include: {
       address: true,
-      projectEvent: { select: { projectId: true } },
+      projectEvent: {
+        select: {
+          projectId: true,
+          matchReason: true,
+          project: {
+            select: {
+              address: { select: { normalizedStreetAddress: true } },
+            },
+          },
+        },
+      },
     },
   });
+}
+
+type PermitForMatching = NonNullable<Awaited<ReturnType<typeof getPermitForMatching>>>;
+
+function rawPayloadObject(value: Prisma.JsonValue): Record<string, Prisma.JsonValue> | null {
+  return value !== null && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, Prisma.JsonValue>)
+    : null;
+}
+
+function rawPayloadText(
+  payload: Record<string, Prisma.JsonValue> | null,
+  key: string,
+): string | null {
+  const value = payload?.[key];
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function rawPayloadCoordinate(
+  payload: Record<string, Prisma.JsonValue> | null,
+  key: "latitude" | "longitude",
+): number | null {
+  const value = payload?.[key];
+  const parsed =
+    typeof value === "number" ? value : typeof value === "string" ? Number(value) : NaN;
+  const validRange = key === "latitude" ? [-90, 90] : [-180, 180];
+  return Number.isFinite(parsed) && parsed >= validRange[0]! && parsed <= validRange[1]!
+    ? parsed
+    : null;
+}
+
+function linkWasAutomated(value: Prisma.JsonValue | null): boolean {
+  const reason = rawPayloadObject(value);
+  return reason?.automated !== false;
+}
+
+/**
+ * Replays legacy address parsing from the immutable City payload. If the
+ * corrected civic site differs, only an automatically-created link is removed;
+ * the normal matcher then assigns the event to its corrected physical site.
+ */
+async function reconcileLegacyPermitAddress(
+  transaction: Transaction,
+  permit: PermitForMatching,
+): Promise<void> {
+  if (permit.addressNormalizationVersion >= CURRENT_ADDRESS_NORMALIZATION_VERSION) return;
+
+  const payload = rawPayloadObject(permit.rawSourcePayload);
+  const rawAddress = rawPayloadText(payload, "address") ?? permit.address.rawSourceAddress;
+  const normalized = normalizeEdmontonAddress(rawAddress);
+  const latitude = rawPayloadCoordinate(payload, "latitude");
+  const longitude = rawPayloadCoordinate(payload, "longitude");
+
+  let correctedAddressId = permit.addressId;
+  if (normalized.normalizedAddressKey) {
+    const correctedAddress = await transaction.address.upsert({
+      where: { normalizedAddressKey: normalized.normalizedAddressKey },
+      create: {
+        rawSourceAddress: normalized.rawSourceAddress,
+        normalizedStreetAddress: normalized.normalizedStreetAddress,
+        normalizedAddressKey: normalized.normalizedAddressKey,
+        unitNumber: normalized.unitNumber,
+        city: normalized.city,
+        province: normalized.province,
+        postalCode: normalized.postalCode,
+        latitude,
+        longitude,
+        neighbourhoodId: permit.neighbourhoodId ?? permit.address.neighbourhoodId,
+      },
+      update: {
+        rawSourceAddress: normalized.rawSourceAddress,
+        normalizedStreetAddress: normalized.normalizedStreetAddress,
+        unitNumber: normalized.unitNumber,
+        postalCode: normalized.postalCode ?? undefined,
+        latitude: latitude ?? undefined,
+        longitude: longitude ?? undefined,
+        neighbourhoodId: permit.neighbourhoodId ?? permit.address.neighbourhoodId ?? undefined,
+      },
+      select: { id: true },
+    });
+    correctedAddressId = correctedAddress.id;
+  }
+
+  const linkedSiteKey = permit.projectEvent
+    ? getSiteAddressKey(permit.projectEvent.project.address)
+    : "";
+  const correctedSiteKey = normalized.siteAddressKey;
+  const shouldDetach = Boolean(
+    permit.projectEvent &&
+    linkWasAutomated(permit.projectEvent.matchReason) &&
+    (!correctedSiteKey || linkedSiteKey !== correctedSiteKey),
+  );
+  const projectMatchStatus =
+    permit.projectEvent && !shouldDetach
+      ? ProjectMatchStatus.MATCHED
+      : correctedSiteKey
+        ? ProjectMatchStatus.PENDING
+        : ProjectMatchStatus.UNMATCHABLE;
+
+  await transaction.permitEvent.update({
+    where: { id: permit.id },
+    data: {
+      addressId: correctedAddressId,
+      addressNormalizationVersion: CURRENT_ADDRESS_NORMALIZATION_VERSION,
+      projectMatchStatus,
+    },
+  });
+
+  if (permit.projectEvent && shouldDetach) {
+    const previousProjectId = permit.projectEvent.projectId;
+    await transaction.projectEvent.delete({ where: { permitEventId: permit.id } });
+    await recomputeProject(transaction, previousProjectId);
+  }
+}
+
+async function matchOnePermit(transaction: Transaction, permitEventId: string) {
+  let permit = await getPermitForMatching(transaction, permitEventId);
   if (!permit) throw new ProjectIntelligenceError("Permit event was not found.");
-  if (permit.projectEvent)
+  await reconcileLegacyPermitAddress(transaction, permit);
+  permit = await getPermitForMatching(transaction, permitEventId);
+  if (!permit)
+    throw new ProjectIntelligenceError("Permit event was not found after reconciliation.");
+  if (permit.projectEvent) {
+    if (permit.projectMatchStatus !== ProjectMatchStatus.MATCHED) {
+      await transaction.permitEvent.update({
+        where: { id: permit.id },
+        data: { projectMatchStatus: ProjectMatchStatus.MATCHED },
+      });
+    }
     return { disposition: "skipped" as const, projectId: permit.projectEvent.projectId };
+  }
 
   const siteAddressKey = getSiteAddressKey(permit.address);
-  if (!siteAddressKey) throw new ProjectIntelligenceError("Permit address cannot be matched.");
+  if (!siteAddressKey) {
+    if (permit.projectMatchStatus !== ProjectMatchStatus.UNMATCHABLE) {
+      await transaction.permitEvent.update({
+        where: { id: permit.id },
+        data: { projectMatchStatus: ProjectMatchStatus.UNMATCHABLE },
+      });
+    }
+    return { disposition: "unassigned" as const, projectId: null };
+  }
 
   const candidates = await transaction.project.findMany({
     where: {
@@ -400,6 +555,10 @@ async function matchOnePermit(transaction: Transaction, permitEventId: string) {
       },
     },
   });
+  await transaction.permitEvent.update({
+    where: { id: permit.id },
+    data: { projectMatchStatus: ProjectMatchStatus.MATCHED },
+  });
   await recomputeProject(transaction, project.id);
   return {
     disposition: created ? ("created" as const) : ("matched" as const),
@@ -412,6 +571,7 @@ export interface MatchPermitEventsResult {
   created: number;
   matched: number;
   skipped: number;
+  unassigned: number;
   failed: number;
   failures: Array<{ permitEventId: string; error: string }>;
 }
@@ -442,7 +602,12 @@ export async function matchUnassignedPermitEvents(
     .max(1_000)
     .parse(options.limit ?? 100);
   const permits = await db.permitEvent.findMany({
-    where: { projectEvent: null },
+    where: {
+      OR: [
+        { projectMatchStatus: ProjectMatchStatus.PENDING },
+        { addressNormalizationVersion: { lt: CURRENT_ADDRESS_NORMALIZATION_VERSION } },
+      ],
+    },
     select: { id: true },
     orderBy: [{ importedAt: "asc" }, { id: "asc" }],
     take: limit,
@@ -452,6 +617,7 @@ export async function matchUnassignedPermitEvents(
     created: 0,
     matched: 0,
     skipped: 0,
+    unassigned: 0,
     failed: 0,
     failures: [],
   };
@@ -689,7 +855,16 @@ export async function mergeProjects(
 
       const movedEvents = await transaction.projectEvent.updateMany({
         where: { projectId: source.id },
-        data: { projectId: target.id, linkedAt: new Date() },
+        data: {
+          projectId: target.id,
+          linkedAt: new Date(),
+          matchReason: {
+            strategy: "manual-project-merge",
+            automated: false,
+            sourceProjectId: source.id,
+            targetProjectId: target.id,
+          },
+        },
       });
       await transaction.alertEvent.updateMany({
         where: { projectId: source.id },

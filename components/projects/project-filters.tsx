@@ -121,14 +121,33 @@ export function ProjectFiltersForm({
         <summary className="cursor-pointer text-xs font-bold text-[var(--teal)]">
           Date, confidence, value, and unit filters
         </summary>
+        <p
+          id="project-date-filter-help"
+          className="mt-3 mb-0 text-xs leading-5 text-[var(--muted)]"
+        >
+          Date filters use City application, issue, and occupancy dates only. A tracker observation
+          date for an otherwise undated row is excluded.
+        </p>
         <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
           <label className="text-xs font-semibold">
             Latest infill milestone from
-            <input name="from" type="date" defaultValue={filters.from} className={fieldClass} />
+            <input
+              name="from"
+              type="date"
+              defaultValue={filters.from}
+              aria-describedby="project-date-filter-help"
+              className={fieldClass}
+            />
           </label>
           <label className="text-xs font-semibold">
             Latest infill milestone to
-            <input name="to" type="date" defaultValue={filters.to} className={fieldClass} />
+            <input
+              name="to"
+              type="date"
+              defaultValue={filters.to}
+              aria-describedby="project-date-filter-help"
+              className={fieldClass}
+            />
           </label>
           <label className="text-xs font-semibold">
             Minimum confidence

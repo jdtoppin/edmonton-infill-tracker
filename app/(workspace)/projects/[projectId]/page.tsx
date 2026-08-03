@@ -126,7 +126,7 @@ export default async function ProjectDetailPage({
             <div className="section-head">
               <div>
                 <div className="eyebrow">Evidence trail</div>
-                <h2>Permit timeline</h2>
+                <h2>Project evidence history</h2>
               </div>
               <Building2 size={18} className="text-[var(--teal)]" />
             </div>

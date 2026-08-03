@@ -44,6 +44,13 @@ describe("project-intelligence background jobs", () => {
     });
     expect(mockedMatchPermitEvent).toHaveBeenCalledTimes(2);
     expect(mockedMatchPermitEvent).toHaveBeenNthCalledWith(1, db, "permit-a", { fence });
+    expect(findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          OR: [{ projectMatchStatus: "PENDING" }, { addressNormalizationVersion: { lt: 2 } }],
+        }),
+      }),
+    );
   });
 
   it("reclassifies active projects independently", async () => {

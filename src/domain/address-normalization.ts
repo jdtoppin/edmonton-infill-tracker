@@ -23,57 +23,109 @@ export interface NormalizedEdmontonAddress {
   normalizedAddressKey: string;
 }
 
+export const CURRENT_ADDRESS_NORMALIZATION_VERSION = 2;
+
 const STREET_TYPE_ALIASES: Readonly<Record<string, string>> = {
+  ACRES: "ACRES",
   ALLEY: "ALY",
   ALLEYWAY: "ALY",
   AV: "AVE",
   AVENUE: "AVE",
+  BAY: "BAY",
   BEND: "BEND",
+  BLUFF: "BLUFF",
   BLVD: "BLVD",
   BOULEVARD: "BLVD",
+  BRIDGE: "BRIDGE",
+  CAPE: "CAPE",
+  CENTRE: "CENTRE",
   CIRCLE: "CIR",
   CIR: "CIR",
   CL: "CL",
   CLOSE: "CL",
   COMMON: "COMMON",
   COURT: "CT",
+  COVE: "COVE",
+  CREST: "CREST",
   CRES: "CRES",
   CRESCENT: "CRES",
+  CROSSING: "CROSSING",
   CT: "CT",
   DRIVE: "DR",
   DR: "DR",
+  END: "END",
+  ESTATES: "ESTATES",
+  FREEWAY: "FREEWAY",
   GATE: "GATE",
+  GARDENS: "GARDENS",
   GREEN: "GREEN",
+  GROVE: "GROVE",
+  HEATH: "HEATH",
   HEIGHTS: "HTS",
+  HILL: "HILL",
   HIGHWAY: "HWY",
   HTS: "HTS",
   HWY: "HWY",
+  KEEP: "KEEP",
+  KEY: "KEY",
   LANE: "LANE",
+  LANDING: "LANDING",
   LINK: "LINK",
+  LOOP: "LOOP",
+  MALL: "MALL",
   MANOR: "MANOR",
+  MAZE: "MAZE",
   MEWS: "MEWS",
+  ONE: "ONE",
   PARK: "PARK",
   PARKWAY: "PKWY",
   PLACE: "PL",
   PL: "PL",
   PKWY: "PKWY",
   POINT: "PT",
+  POINTE: "POINTE",
   PT: "PT",
+  PARADE: "PARADE",
+  PASSAGE: "PASSAGE",
+  PLAZA: "PLAZA",
+  PROMENADE: "PROMENADE",
   RD: "RD",
+  RISE: "RISE",
   ROAD: "RD",
   ROW: "ROW",
+  RUN: "RUN",
   SQUARE: "SQ",
   SQ: "SQ",
   ST: "ST",
+  STATION: "STATION",
+  STOP: "STOP",
   STREET: "ST",
   TERRACE: "TER",
   TER: "TER",
   TRAIL: "TRL",
   TRL: "TRL",
+  TWO: "TWO",
   VIEW: "VIEW",
+  VILLAGE: "VILLAGE",
+  VISTA: "VISTA",
   WALK: "WALK",
   WAY: "WAY",
+  WYND: "WYND",
+  WYNDE: "WYNDE",
 };
+
+const STREET_TYPES = new Set(Object.values(STREET_TYPE_ALIASES));
+// Verified against the City's current Parcel Addresses dataset. These official
+// streets intentionally have no separate type suffix.
+const STANDALONE_STREET_NAMES = new Set([
+  "HEARTHSTONE",
+  "KEEGANO",
+  "KINGSWAY",
+  "MARLBOROUGH",
+  "SOUTHRIDGE",
+  "SUNDANCE",
+  "WOODSTOCK",
+]);
 
 const DIRECTION_ALIASES: Readonly<Record<string, string>> = {
   N: "N",
@@ -114,6 +166,31 @@ function normalizeUnitNumber(value: string | number | null | undefined): string 
   return normalized || null;
 }
 
+/**
+ * A complete civic address starts with a building number and includes a
+ * separate street name/number before its street type. This distinction matters
+ * for Edmonton Open Data, whose canonical civic format is
+ * `5308 - 103A AVENUE NW`: the text after the dash is only the street name,
+ * not another complete address prefixed by a unit.
+ */
+export function isCompleteCivicStreetAddress(value: string): boolean {
+  const tokens = normalizeStreetAddress(value).split(" ").filter(Boolean);
+  if (!/^\d+[A-Z]{0,2}$/.test(tokens[0] ?? "")) return false;
+
+  if (tokens.some((token, index) => index >= 2 && STREET_TYPES.has(token))) return true;
+
+  // Edmonton's Highway 19 civic addresses place the road type before the
+  // highway number (`19510 HIGHWAY 19 SW`). Keep this exception numeric so a
+  // street-only value such as `19 HIGHWAY NW` still fails closed.
+  if (tokens[1] === "HWY" && /^\d+[A-Z]{0,2}$/.test(tokens[2] ?? "")) return true;
+
+  // A few official Edmonton roads do not carry a separate street-type suffix.
+  // Keep this allowlist narrow so an unknown or misspelled street-only value
+  // cannot be reinterpreted as a complete civic address.
+  const firstStreetToken = tokens[1];
+  return Boolean(firstStreetToken && STANDALONE_STREET_NAMES.has(firstStreetToken));
+}
+
 function extractUnit(streetAddress: string): {
   streetAddress: string;
   unitNumber: string | null;
@@ -128,9 +205,32 @@ function extractUnit(streetAddress: string): {
     };
   }
 
+  const locationLabelled = streetAddress.match(
+    /^\s*(BSMT|BASEMENT|MAIN(?:\s+FLOOR)?|UPPER(?:\s+FLOOR)?)\s*,\s*(.+)$/i,
+  );
+  if (locationLabelled) {
+    return {
+      streetAddress: locationLabelled[2],
+      unitNumber: normalizeUnitNumber(locationLabelled[1]),
+    };
+  }
+
+  // City rows also use bare unit prefixes such as `317, 12025 - 48 AVENUE`
+  // and `G1, 10649 - 68 AVENUE`. The civic-address guard prevents ordinary
+  // comma-separated prose from being treated as a unit.
+  const commaSeparated = streetAddress.match(/^\s*([A-Z0-9-]{1,30})\s*,\s*(.+)$/i);
+  if (commaSeparated && isCompleteCivicStreetAddress(commaSeparated[2])) {
+    return {
+      streetAddress: commaSeparated[2],
+      unitNumber: normalizeUnitNumber(commaSeparated[1]),
+    };
+  }
+
   // Edmonton source data commonly represents a unit as "101-12345 67 ST NW".
-  const hyphenated = streetAddress.match(/^\s*([A-Z0-9]{1,4})\s*-\s*(\d{3,}[A-Z]?\s+.+)$/i);
-  if (hyphenated) {
+  // Only treat the prefix as a unit when the right side is itself a complete
+  // civic address. Otherwise the dash is the City's building/street separator.
+  const hyphenated = streetAddress.match(/^\s*([A-Z0-9]{1,12})\s*-\s*(.+)$/i);
+  if (hyphenated && isCompleteCivicStreetAddress(hyphenated[2])) {
     return {
       streetAddress: hyphenated[2],
       unitNumber: normalizeUnitNumber(hyphenated[1]),
@@ -185,7 +285,9 @@ export function normalizePostalCode(value: string | null | undefined): string | 
 
 export function createSiteAddressKey(normalizedStreetAddress: string): string {
   const street = normalizeStreetAddress(normalizedStreetAddress);
-  return street ? `edmonton|ab|${street.toLowerCase()}` : "";
+  return street && isCompleteCivicStreetAddress(street)
+    ? `edmonton|ab|${street.toLowerCase()}`
+    : "";
 }
 
 export function createNormalizedAddressKey(

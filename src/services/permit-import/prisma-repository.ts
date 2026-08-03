@@ -1,8 +1,12 @@
-import { normalizeEdmontonAddress } from "../../domain/address-normalization";
+import {
+  CURRENT_ADDRESS_NORMALIZATION_VERSION,
+  normalizeEdmontonAddress,
+} from "../../domain/address-normalization";
 import type { Prisma, PrismaClient } from "../../generated/prisma/client";
 import {
   ImportMode,
   NeighbourhoodNameSource,
+  ProjectMatchStatus,
   RawRecordStatus,
   RunStatus,
 } from "../../generated/prisma/enums";
@@ -308,9 +312,17 @@ export class PrismaPermitImportRepository implements PermitImportRepository {
         create: {
           sourceProvider: input.sourceProviderKey,
           sourceRecordIdentifier: input.permit.sourceRecordIdentifier,
+          addressNormalizationVersion: CURRENT_ADDRESS_NORMALIZATION_VERSION,
+          projectMatchStatus: ProjectMatchStatus.PENDING,
           ...permitData,
         },
-        update: permitData,
+        update: {
+          ...permitData,
+          // A changed source row must revalidate both its corrected Address and
+          // any existing project link before it can be considered current.
+          addressNormalizationVersion: CURRENT_ADDRESS_NORMALIZATION_VERSION - 1,
+          projectMatchStatus: ProjectMatchStatus.PENDING,
+        },
       });
 
       await transaction.rawPermitRecord.update({

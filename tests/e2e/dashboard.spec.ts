@@ -285,7 +285,7 @@ test("@responsive filters projects and opens a normalized permit timeline", asyn
     .first();
   await expect(projectLink).toBeVisible();
   await projectLink.click();
-  await expect(page.getByRole("heading", { name: "Permit timeline" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Project evidence history" })).toBeVisible();
   await expect(page.getByRole("heading", { name: /\d+% confidence/ })).toBeVisible();
 });
 

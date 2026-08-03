@@ -46,6 +46,30 @@ describe("project matching by normalized address", () => {
     ).toBe(true);
   });
 
+  it("keeps separate civic properties on the same numbered avenue", () => {
+    const records = [
+      { rawAddress: "5308 - 103A AVENUE NW", value: "fulton-5308" },
+      { rawAddress: "5310 - 103A AVENUE NW", value: "fulton-5310" },
+      { rawAddress: "4623 - 103A AVENUE NW", value: "gold-bar-4623" },
+    ];
+
+    expect([...groupByNormalizedAddress(records).keys()]).toEqual([
+      "edmonton|ab|5308 103a ave nw",
+      "edmonton|ab|5310 103a ave nw",
+      "edmonton|ab|4623 103a ave nw",
+    ]);
+    expect(matchesProjectAddress(records[0]!, records[1]!)).toBe(false);
+    expect(findProjectByNormalizedAddress(records[2]!, records.slice(0, 2))).toBeNull();
+  });
+
+  it("does not auto-match two incomplete street-only records", () => {
+    expect(
+      findProjectByNormalizedAddress({ rawAddress: "101A AVENUE NW" }, [
+        { id: "street-wide-project", rawAddress: "101A AVE NW" },
+      ]),
+    ).toBeNull();
+  });
+
   it("prefers an exact unit match when legacy duplicate projects exist", () => {
     const projects = [
       {

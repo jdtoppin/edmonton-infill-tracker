@@ -141,8 +141,8 @@ export default async function ProjectsPage({
               {page.total.toLocaleString("en-CA")} {page.total === 1 ? "project" : "projects"}
             </h2>
             <p className="mt-1 mb-0 text-xs text-[var(--muted)]">
-              Infill start is the first milestone used to identify the project. Latest infill
-              milestone excludes unrelated later property permits.
+              Date filters use City application, issue, and occupancy dates only. Tracker
+              observation dates are excluded, as are unrelated later property permits.
             </p>
           </div>
           <ProjectViewSwitcher filters={filters} />
