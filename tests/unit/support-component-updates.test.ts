@@ -216,4 +216,43 @@ describe("support-component update policy", () => {
     expect(ci).toContain("aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25");
     expect(dependabot.match(/version-update:semver-major/g)).toHaveLength(2);
   });
+
+  it("keeps PostGIS scanner exceptions path-scoped, explicit, and expiring", async () => {
+    const [ci, ignoreFile] = await Promise.all([
+      readFile(new URL("../../.github/workflows/ci.yml", import.meta.url), "utf8"),
+      readFile(new URL("../../.github/trivyignore-postgis-gosu.yaml", import.meta.url), "utf8"),
+    ]);
+    const expectedIds = [
+      "CVE-2025-61726",
+      "CVE-2025-61729",
+      "CVE-2025-68121",
+      "CVE-2026-25679",
+      "CVE-2026-27145",
+      "CVE-2026-32280",
+      "CVE-2026-32281",
+      "CVE-2026-32283",
+      "CVE-2026-33811",
+      "CVE-2026-33814",
+      "CVE-2026-39820",
+      "CVE-2026-39822",
+      "CVE-2026-39836",
+      "CVE-2026-42499",
+      "CVE-2026-42504",
+    ];
+    const entries = ignoreFile.split(/^  - id: /m).slice(1);
+
+    expect(entries.map((entry) => entry.match(/^([^\n]+)/)?.[1])).toEqual(expectedIds);
+    expect(entries).toHaveLength(expectedIds.length);
+    for (const entry of entries) {
+      expect(entry).toContain('paths:\n      - "usr/local/bin/gosu"');
+      expect(entry).toContain("expired_at: 2026-09-15");
+      expect(entry).toContain("statement:");
+    }
+
+    expect(ci.match(/trivyignores:/g)).toHaveLength(1);
+    const postgisScan = ci
+      .split("- name: Scan PostGIS image")[1]
+      ?.split("- name: Scan Caddy image")[0];
+    expect(postgisScan).toContain("trivyignores: .github/trivyignore-postgis-gosu.yaml");
+  });
 });

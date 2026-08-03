@@ -153,6 +153,12 @@ third-party credential. GitHub Actions must be permitted to create pull requests
 step; if repository policy disables that permission, the workflow leaves its tested proposal branch
 and fails visibly instead of bypassing the policy.
 
+The PostGIS scan has a separate, path-scoped, expiring exception file for audited Go
+standard-library reports against the upstream `gosu` privilege-drop binary. This follows `gosu`'s
+published reachability policy; it does not hide any new finding or any finding in PostgreSQL,
+PostGIS, Debian, the application image, or Caddy. The weekly CI run fails when the exception expires
+so it must be reviewed again.
+
 Administrators can open **Administration → Application updates** to compare the compiled commit
 with the fixed public `jdtoppin/edmonton-infill-tracker` main branch and copy the command below. The
 page does not receive a GitHub credential and cannot run a command, select another repository/ref,

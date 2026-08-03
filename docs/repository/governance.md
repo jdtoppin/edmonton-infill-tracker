@@ -58,6 +58,14 @@ Protect `main` in GitHub repository settings with a ruleset:
 
 Also enable secret scanning, push protection, Dependabot alerts, and private vulnerability reporting when they are available for the repository plan.
 
+Container-scan exceptions must identify individual findings, a single affected path, an audit
+reason, and an expiry date. The only current exception file is applied to the upstream `gosu`
+binary in the PostGIS image. It follows the
+[`gosu` security policy](https://github.com/tianon/gosu/blob/1.19/SECURITY.md), which requires
+reachability analysis for generic Go standard-library reports. It does not suppress new CVE IDs,
+other files, the application image, Caddy, PostgreSQL, PostGIS, or Debian packages. CI must fail
+again when an exception expires so it is re-audited rather than silently becoming permanent.
+
 Create the `bug`, `enhancement`, and `data-quality` labels referenced by the issue forms. Triage data-quality reports separately from software defects because upstream public-data errors, normalization problems, and classification-rule errors need different remedies.
 
 ## Pull-request expectations

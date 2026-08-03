@@ -365,6 +365,10 @@ jobs:
           ignore-unfixed: true
           vuln-type: os,library
           severity: HIGH,CRITICAL
+          # The official gosu project directs generic Go-stdlib scanner
+          # findings through govulncheck reachability analysis. Keep these
+          # audited exceptions path-scoped and expiring; all new IDs still fail.
+          trivyignores: .github/trivyignore-postgis-gosu.yaml
 
       - name: Scan Caddy image
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
