@@ -59,7 +59,7 @@
     "@vitejs/plugin-react": "6.0.5",
     "@vitejs/plugin-rsc": "0.5.32",
     "@vitest/coverage-v8": "^4.1.10",
-    "eslint": "9.39.4",
+    "eslint": "10.8.0",
     "eslint-config-next": "16.2.6",
     "prettier": "^3.9.6",
     "prettier-plugin-tailwindcss": "^0.8.1",
