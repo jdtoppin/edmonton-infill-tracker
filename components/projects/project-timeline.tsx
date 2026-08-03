@@ -8,6 +8,7 @@ import {
   Hammer,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { OccupancyEstimate } from "@/components/projects/occupancy-estimate";
 import {
   formatConstructionValue,
   type ProjectTimelineEntry,
@@ -120,6 +121,7 @@ export function ProjectTimeline({
                   milestone.
                 </p>
               )}
+              {entry.occupancyEstimate && <OccupancyEstimate estimate={entry.occupancyEstimate} />}
               <div className="mt-4 flex flex-wrap gap-3 text-xs font-semibold">
                 {entry.source.datasetUrl && (
                   <a

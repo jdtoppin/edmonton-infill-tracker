@@ -14,7 +14,15 @@ import {
   INFILL_EVENT_ROLE,
   type InfillEventAssessment,
 } from "../../domain/infill-classification";
+import {
+  baselineOccupancyBenchmark,
+  buildOccupancyTimingEstimate,
+  edmontonCivilDate,
+  type OccupancyBenchmark,
+  type OccupancyTimingEstimate,
+} from "../../domain/occupancy-estimate";
 import { buildProjectMilestones } from "../../domain/project-timeline";
+import { log } from "../../lib/logger";
 import { dashboardRange, type DashboardPeriod, type DashboardRange } from "./dashboard-periods";
 import {
   civilDateStart,
@@ -34,6 +42,7 @@ import {
   serializeDecimal,
   serializeTimestamp,
 } from "./presentation";
+import { getOccupancyBenchmark } from "./occupancy-estimates";
 
 const dayMilliseconds = 24 * 60 * 60 * 1_000;
 const identifierSchema = z.string().trim().min(1).max(200);
@@ -247,6 +256,7 @@ export type ProjectTimelineEntry = {
   applicationDate: string | null;
   issueDate: string | null;
   occupancyGrantedDate: string | null;
+  occupancyEstimate: OccupancyTimingEstimate | null;
   source: ReturnType<typeof permitSourceLink>;
 };
 
@@ -584,15 +594,58 @@ export async function listProjectMarkers(
   };
 }
 
+type ProjectDetailPermit = ProjectDetailRecord["events"][number]["permitEvent"];
+
+function pendingOccupancyAnchor(
+  permits: readonly ProjectDetailPermit[],
+  now: Date,
+): ProjectDetailPermit | null {
+  // An occupancy row can be reported separately from its original building row.
+  // Once the project has any occupancy milestone, do not describe it as pending.
+  if (permits.some((permit) => permit.occupancyGrantedDate !== null)) return null;
+  const asOfDate = edmontonCivilDate(now);
+  return (
+    permits
+      .filter(
+        (permit): permit is ProjectDetailPermit & { issueDate: Date } =>
+          permit.sourceDataset === "building" &&
+          permit.issueDate !== null &&
+          permit.issueDate <= asOfDate &&
+          assessInfillPermitEvent({
+            sourceDataset: permit.sourceDataset,
+            permitType: permit.permitType,
+            permitSubtype: permit.permitSubtype,
+            status: permit.status,
+            workDescription: permit.workDescription,
+            buildingType: permit.buildingType,
+            unitsAdded: permit.unitsAdded,
+            applicationDate: permit.applicationDate,
+            issueDate: permit.issueDate,
+            occupancyGrantedDate: permit.occupancyGrantedDate,
+          }).role === INFILL_EVENT_ROLE.principalResidential,
+      )
+      // Use the first principal residential building permit as the construction
+      // timing anchor. Amendments and supporting permits remain visible without
+      // repeating the estimate on every timeline card.
+      .sort(
+        (left, right) =>
+          left.issueDate.getTime() - right.issueDate.getTime() || left.id.localeCompare(right.id),
+      )[0] ?? null
+  );
+}
+
 function serializeProjectDetail(
   record: ProjectDetailRecord,
   dataMode: ReadModelDataMode,
+  occupancyBenchmark: OccupancyBenchmark | null = null,
+  now = new Date(),
 ): ProjectDetail {
   const permits = record.events.map(({ eventDate, permitEvent }) => ({
     ...permitEvent,
     eventDate,
   }));
   const permitsById = new Map(permits.map((permit) => [permit.id, permit]));
+  const occupancyAnchor = pendingOccupancyAnchor(permits, now);
   const timeline = buildProjectMilestones(permits).map((milestone): ProjectTimelineEntry => {
     const permit = permitsById.get(milestone.permitEventId)!;
     const date = serializeDate(milestone.date)!;
@@ -614,6 +667,12 @@ function serializeProjectDetail(
       applicationDate: serializeDate(permit.applicationDate),
       issueDate: serializeDate(permit.issueDate),
       occupancyGrantedDate: serializeDate(permit.occupancyGrantedDate),
+      occupancyEstimate:
+        occupancyBenchmark &&
+        occupancyAnchor?.id === permit.id &&
+        milestone.type === "BUILDING_PERMIT"
+          ? buildOccupancyTimingEstimate(occupancyAnchor.issueDate!, occupancyBenchmark, now)
+          : null,
       source: permitSourceLink(permit.sourceProvider, permit.sourceRecordIdentifier),
     };
   });
@@ -657,6 +716,7 @@ function serializeProjectDetail(
 export async function getProjectDetail(
   db: PrismaClient,
   projectId: string,
+  now = new Date(),
 ): Promise<ProjectDetail | null> {
   const parsedId = identifierSchema.safeParse(projectId);
   if (!parsedId.success) return null;
@@ -665,7 +725,21 @@ export async function getProjectDetail(
     where: { id, ...publicBaseWhere },
     select: projectDetailSelect,
   });
-  return record ? serializeProjectDetail(record, "live") : null;
+  if (!record) return null;
+  const permits = record.events.map(({ permitEvent }) => permitEvent);
+  if (!pendingOccupancyAnchor(permits, now))
+    return serializeProjectDetail(record, "live", null, now);
+  let benchmark: OccupancyBenchmark;
+  try {
+    benchmark = await getOccupancyBenchmark(db, record.category, now);
+  } catch (error) {
+    log("warn", "occupancy_benchmark.fallback", {
+      projectId: record.id,
+      reason: error instanceof Error ? error.message : "Unknown benchmark query error",
+    });
+    benchmark = baselineOccupancyBenchmark();
+  }
+  return serializeProjectDetail(record, "live", benchmark, now);
 }
 
 async function lifecycleCounts(
@@ -1327,6 +1401,14 @@ function previewProjects(now = new Date()): PreviewProject[] {
             applicationDate: listItem.infillStartDate,
             issueDate: latestDate,
             occupancyGrantedDate: null,
+            occupancyEstimate:
+              record.stage === ProjectStage.BUILDING_PERMIT
+                ? buildOccupancyTimingEstimate(
+                    new Date(`${latestDate}T00:00:00.000Z`),
+                    baselineOccupancyBenchmark(),
+                    now,
+                  )
+                : null,
             source: { label: "Synthetic preview", datasetUrl: null, recordUrl: null },
           },
         ],

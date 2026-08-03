@@ -49,6 +49,14 @@ The City describes the date as the point when the applicable requirements for us
 
 The overview may show “Occupancy granted — Jul 30, 2026” or “No occupancy date reported.” It must never label a blank value “Occupied: No,” and the application must not represent itself as independently certifying safety, habitability, or permitted use.
 
+### Typical occupancy timing
+
+An eligible principal residential building-permit card may compare its elapsed time with similar core-infill building permits when that project has no reported occupancy milestone. The estimate never starts at a development permit because the delay between development approval and building-permit issuance is variable.
+
+The historical benchmark uses a rolling five-year issue-date cohort, no earlier than the City's January 1, 2022 residential occupancy coverage, and matches each occupancy date only to the same General Building Permit row. Accessory, property-only, inactive, commercial, renovation, demolition-only, and non-core records are excluded. A Kaplan–Meier median accounts for permits whose occupancy date is still unreported; intervals longer than 730 days are capped as right-censored observations so unusually long records do not pull the comparison upward. Category estimates require at least 50 comparable permits and 30 reported occupancies, otherwise the application falls back to the adequate overall core-infill cohort or a clearly labelled 548-day (approximately 18-month) planning baseline.
+
+The gradient is a comparative timing guide, not a deadline or a safety assessment. Active permits remain visible after two years, with their actual elapsed time shown beyond the capped comparison scale.
+
 ## Trust boundary
 
 - Requests use HTTPS and an allowlisted Edmonton hostname.

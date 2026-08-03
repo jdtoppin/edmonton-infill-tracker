@@ -287,6 +287,12 @@ test("@responsive filters projects and opens a normalized permit timeline", asyn
   await projectLink.click();
   await expect(page.getByRole("heading", { name: "Project evidence history" })).toBeVisible();
   await expect(page.getByRole("heading", { name: /\d+% confidence/ })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Typical occupancy timing" })).toBeVisible();
+  await expect(page.getByText("18-month planning baseline", { exact: true })).toBeVisible();
+
+  await page.goto("/projects/seed-project-semi-detached");
+  await expect(page.getByRole("heading", { name: "Project evidence history" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Typical occupancy timing" })).toHaveCount(0);
 });
 
 test("keeps list, map, and split views distinct and bounds the map list", async ({ page }) => {

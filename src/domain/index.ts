@@ -2,6 +2,7 @@ export * from "./address-normalization";
 export * from "./alert-deduplication";
 export * from "./infill-classification";
 export * from "./infill-scoring-config";
+export * from "./occupancy-estimate";
 export * from "./permit-identity";
 export * from "./project-matching";
 export * from "./project-timeline";
