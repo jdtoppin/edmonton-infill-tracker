@@ -80,6 +80,10 @@ test("@responsive shows the live permit intelligence overview", async ({ page })
       await expect(summaryVisuals.first()).toHaveAttribute("aria-hidden", "true");
       await expect(summaryWrappers.first()).toHaveCSS("pointer-events", "none");
       await expect(countBubbles.first()).toHaveAttribute("tabindex", "-1");
+      const projectMarkers = overviewMap.locator("[data-overview-project-marker]");
+      await expect(projectMarkers.first()).toBeVisible();
+      await projectMarkers.first().click();
+      await expect(overviewMap.getByRole("link", { name: "View project timeline" })).toBeVisible();
     }
   }
   const exploreLink = page.getByRole("main").getByRole("link", { name: "Explore projects" });

@@ -32,6 +32,7 @@ type MappableActivityProject = ActivityProject & { latitude: number; longitude: 
 const ACTIVITY_PROJECT_SOURCE_ID = "overview-activity-projects";
 const ACTIVITY_PROJECT_LAYER_ID = "overview-activity-project-points";
 const PROJECT_DETAIL_ZOOM = 11.75;
+const MAX_VISIBLE_DOM_PROJECT_MARKERS = 250;
 
 type NeighbourhoodActivityMapProps = {
   areas: readonly ActivityArea[];
@@ -257,6 +258,7 @@ export function NeighbourhoodActivityMap({
     let popup: MapLibrePopup | null = null;
     let removeNeighbourhoodLabels: (() => void) | null = null;
     const mapMarkers: MapLibreMarker[] = [];
+    const projectMapMarkers = new Map<string, MapLibreMarker>();
     const markerElements = new Map<string, HTMLButtonElement>();
     const markerWrappers = new Map<string, HTMLElement>();
     const markerVisuals = new Map<string, HTMLElement>();
@@ -283,6 +285,72 @@ export function NeighbourhoodActivityMap({
         mapRef.current = mapInstance;
         popup = new maplibre.Popup({ offset: 14, closeButton: true, focusAfterOpen: false });
         mapInstance.addControl(new maplibre.NavigationControl({ showCompass: false }), "top-right");
+        mapContainer.dataset.mapProjectCount = String(mappedProjects.length);
+
+        const openProject = (project: MappableActivityProject) => {
+          selectArea(project.neighbourhoodId, false);
+          if (mapInstance.getLayer(ACTIVITY_PROJECT_LAYER_ID)) {
+            mapInstance.setPaintProperty(ACTIVITY_PROJECT_LAYER_ID, "circle-color", [
+              "case",
+              ["==", ["get", "projectId"], project.id],
+              "#c8752a",
+              "#176473",
+            ]);
+          }
+          popup
+            ?.setLngLat([project.longitude, project.latitude])
+            .setDOMContent(projectPopupContent(project))
+            .addTo(mapInstance);
+        };
+
+        const syncVisibleProjectMarkers = () => {
+          const showingProjects = mapInstance.getZoom() >= PROJECT_DETAIL_ZOOM;
+          const center = mapInstance.getCenter();
+          const bounds = mapInstance.getBounds();
+          const visibleProjects = showingProjects
+            ? mappedProjects
+                .filter((project) => bounds.contains([project.longitude, project.latitude]))
+                .sort((left, right) => {
+                  const leftDistance =
+                    (left.longitude - center.lng) ** 2 + (left.latitude - center.lat) ** 2;
+                  const rightDistance =
+                    (right.longitude - center.lng) ** 2 + (right.latitude - center.lat) ** 2;
+                  return right.confidence - left.confidence || leftDistance - rightDistance;
+                })
+                .slice(0, MAX_VISIBLE_DOM_PROJECT_MARKERS)
+            : [];
+          const visibleIds = new Set(visibleProjects.map(({ id }) => id));
+
+          for (const [projectId, marker] of projectMapMarkers) {
+            if (visibleIds.has(projectId)) continue;
+            marker.remove();
+            projectMapMarkers.delete(projectId);
+          }
+
+          for (const project of visibleProjects) {
+            if (projectMapMarkers.has(project.id)) continue;
+            const markerButton = document.createElement("button");
+            markerButton.type = "button";
+            markerButton.className =
+              "size-6 rounded-full border-[3px] border-white bg-[var(--teal)] shadow-[0_3px_10px_rgba(23,48,51,0.34)] outline-none transition-[background-color,box-shadow,transform] hover:scale-110 hover:bg-[var(--copper)] focus-visible:scale-110 focus-visible:ring-2 focus-visible:ring-[var(--spruce)] focus-visible:ring-offset-2";
+            markerButton.dataset.overviewProjectMarker = project.id;
+            markerButton.setAttribute(
+              "aria-label",
+              `${project.address}: ${Math.max(0, Math.min(100, Math.round(project.confidence)))}% infill confidence; open project details`,
+            );
+            markerButton.title = project.address;
+            markerButton.addEventListener("click", (event) => {
+              event.stopPropagation();
+              openProject(project);
+            });
+            const marker = new maplibre.Marker({ element: markerButton, anchor: "center" })
+              .setLngLat([project.longitude, project.latitude])
+              .addTo(mapInstance);
+            projectMapMarkers.set(project.id, marker);
+          }
+
+          mapContainer.dataset.visibleProjectMarkers = String(projectMapMarkers.size);
+        };
 
         const handleStyleLoad = () => {
           if (cancelled || loaded) return;
@@ -377,6 +445,7 @@ export function NeighbourhoodActivityMap({
 
             loaded = true;
             handleZoom();
+            syncVisibleProjectMarkers();
             setMapState("ready");
             const labelsRequest = loadCurrentEdmontonNeighbourhoods();
             void labelsRequest
@@ -421,17 +490,7 @@ export function NeighbourhoodActivityMap({
           if (typeof projectId !== "string") return;
           const project = projectsById.get(projectId);
           if (!project) return;
-          selectArea(project.neighbourhoodId, false);
-          mapInstance.setPaintProperty(ACTIVITY_PROJECT_LAYER_ID, "circle-color", [
-            "case",
-            ["==", ["get", "projectId"], projectId],
-            "#c8752a",
-            "#176473",
-          ]);
-          popup
-            ?.setLngLat([project.longitude, project.latitude])
-            .setDOMContent(projectPopupContent(project))
-            .addTo(mapInstance);
+          openProject(project);
         };
         const handlePointerEnter = () => {
           mapInstance.getCanvas().style.cursor = "pointer";
@@ -443,6 +502,7 @@ export function NeighbourhoodActivityMap({
         mapInstance.on("style.load", handleStyleLoad);
         mapInstance.on("error", handleError);
         mapInstance.on("zoom", handleZoom);
+        mapInstance.on("moveend", syncVisibleProjectMarkers);
         mapInstance.on("click", ACTIVITY_PROJECT_LAYER_ID, handleProjectClick);
         mapInstance.on("mouseenter", ACTIVITY_PROJECT_LAYER_ID, handlePointerEnter);
         mapInstance.on("mouseleave", ACTIVITY_PROJECT_LAYER_ID, handlePointerLeave);
@@ -465,6 +525,8 @@ export function NeighbourhoodActivityMap({
       removeNeighbourhoodLabels?.();
       popup?.remove();
       for (const marker of mapMarkers) marker.remove();
+      for (const marker of projectMapMarkers.values()) marker.remove();
+      projectMapMarkers.clear();
       markerElements.clear();
       markerWrappers.clear();
       markerVisuals.clear();
@@ -476,6 +538,7 @@ export function NeighbourhoodActivityMap({
     mapStyleUrl,
     mapTileUrl,
     mappedAreas,
+    mappedProjects,
     maximumCount,
     periodPhrase,
     projectFeatureCollection,
