@@ -7,7 +7,8 @@ x-app-image: &app-image
     dockerfile: Dockerfile
     target: runtime
     args:
-      NODE_VERSION: ${NODE_VERSION:-22.23.1}
+      NODE_VERSION: ${NODE_VERSION:-22.23.2}
+      NPM_VERSION: ${NPM_VERSION:-12.0.2}
       APP_BUILD_SHA: ${APP_BUILD_SHA:-unknown}
 
 x-app-runtime: &app-runtime
@@ -43,7 +44,7 @@ services:
     build:
       context: ./deploy/postgis
       dockerfile: Dockerfile
-    image: edmonton-infill-postgis:${POSTGIS_IMAGE_TAG:-17.9-3}
+    image: edmonton-infill-postgis:${POSTGIS_IMAGE_TAG:-17.10-3}
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-infill}
       POSTGRES_USER: ${POSTGRES_USER:-infill}
@@ -130,7 +131,12 @@ services:
       start_period: 20s
 
   caddy:
-    image: caddy:2.10.2-alpine
+    image: edmonton-infill-caddy:${CADDY_IMAGE_TAG:-local}
+    build:
+      context: ./deploy/caddy
+      dockerfile: Dockerfile
+      args:
+        CADDY_GO_VERSION: ${CADDY_GO_VERSION:-1.26.5}
     environment:
       SITE_ADDRESS: ${SITE_ADDRESS:-:80}
       UPSTREAM_FORWARDED_PROTO: ${UPSTREAM_FORWARDED_PROTO:-http}
@@ -147,6 +153,10 @@ services:
     read_only: true
     security_opt:
       - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
     restart: unless-stopped
     depends_on:
       web:

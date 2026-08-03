@@ -37,13 +37,15 @@ export async function generateMetadata(): Promise<Metadata> {
       title: "Edmonton Infill Tracker",
       description:
         "Permit signals, project timelines, and neighbourhood alerts for Edmonton infill.",
-      images: [{ url: new URL("/og-phase4.png", baseUrl).toString(), width: 1732, height: 908 }],
+      images: [
+        { url: new URL("/og-map-projects.png", baseUrl).toString(), width: 1200, height: 630 },
+      ],
     },
     twitter: {
       card: "summary_large_image",
       title: "Edmonton Infill Tracker",
       description: "See Edmonton infill signals before the listing appears.",
-      images: [new URL("/og-phase4.png", baseUrl).toString()],
+      images: [new URL("/og-map-projects.png", baseUrl).toString()],
     },
     robots: { index: false, follow: false },
   };

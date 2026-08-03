@@ -40,9 +40,11 @@ export const PROJECT_SORT_FIELDS = [
 ] as const;
 
 export const PROJECT_VIEWS = ["list", "map", "split"] as const;
+export const PROJECT_SCOPES = ["citywide", "core"] as const;
 
 export type ProjectSortField = (typeof PROJECT_SORT_FIELDS)[number];
 export type ProjectView = (typeof PROJECT_VIEWS)[number];
+export type ProjectScope = (typeof PROJECT_SCOPES)[number];
 export type ProjectSearchParamValue = string | readonly string[] | undefined;
 export type ProjectSearchParams =
   URLSearchParams | Readonly<Record<string, ProjectSearchParamValue>>;
@@ -72,6 +74,7 @@ const publicCategorySchema = z.enum(PUBLIC_PROJECT_CATEGORIES);
 const projectFiltersSchema = z
   .object({
     view: z.enum(PROJECT_VIEWS).default("split"),
+    scope: z.enum(PROJECT_SCOPES).default("citywide"),
     q: z.string().trim().max(200).optional(),
     neighbourhoods: z.array(z.string().trim().min(1).max(100)).max(50).default([]),
     categories: z.array(publicCategorySchema).max(PUBLIC_PROJECT_CATEGORIES.length).default([]),
@@ -157,6 +160,7 @@ function firstValue(input: ProjectSearchParams, name: string): string | undefine
 function rawProjectFilters(input: ProjectSearchParams) {
   return {
     view: firstValue(input, "view"),
+    scope: firstValue(input, "scope"),
     q: firstValue(input, "q"),
     neighbourhoods: valuesFor(input, "neighbourhood"),
     categories: valuesFor(input, "category"),
@@ -191,6 +195,7 @@ export function defaultProjectFilters(): ProjectFilters {
 export function projectFiltersToSearchParams(filters: ProjectFilters): URLSearchParams {
   const result = new URLSearchParams();
   if (filters.view !== "split") result.set("view", filters.view);
+  if (filters.scope !== "citywide") result.set("scope", filters.scope);
   if (filters.q) result.set("q", filters.q);
   for (const value of filters.neighbourhoods) result.append("neighbourhood", value);
   for (const value of filters.categories) result.append("category", value);

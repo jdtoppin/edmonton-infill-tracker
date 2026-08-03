@@ -5,6 +5,8 @@ on:
     branches:
       - main
   pull_request:
+  schedule:
+    - cron: "43 15 * * 5"
   workflow_dispatch:
 
 permissions:
@@ -117,11 +119,14 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
-          node-version: 22.23.1
+          node-version: 22.23.2
           cache: npm
 
       - name: Install dependencies
         run: npm ci
+
+      - name: Reject high-severity dependency advisories
+        run: npm audit --audit-level=high
 
       - name: Generate Prisma client
         run: npm run prisma:generate
@@ -162,7 +167,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
-          node-version: 22.23.1
+          node-version: 22.23.2
           cache: npm
 
       - name: Install dependencies
@@ -188,7 +193,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
-          node-version: 22.23.1
+          node-version: 22.23.2
           cache: npm
 
       - name: Install dependencies
@@ -226,7 +231,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
-          node-version: 22.23.1
+          node-version: 22.23.2
           cache: npm
 
       - name: Install dependencies
@@ -249,6 +254,153 @@ jobs:
           --tag edmonton-infill-tracker:ci
           .
 
+  container-security:
+    name: Container security
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+
+      - name: Build application image
+        run: >-
+          docker build
+          --target runtime
+          --build-arg APP_BUILD_SHA="$GITHUB_SHA"
+          --tag edmonton-infill-tracker:security-scan
+          .
+
+      - name: Build PostGIS image
+        run: >-
+          docker build
+          --tag edmonton-infill-postgis:security-scan
+          deploy/postgis
+
+      - name: Build source-pinned Caddy image
+        run: >-
+          docker build
+          --tag edmonton-infill-caddy:security-scan
+          deploy/caddy
+
+      - name: Validate application runtime image
+        run: docker run --rm --entrypoint node edmonton-infill-tracker:security-scan --version
+
+      - name: Validate pinned npm runtime dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected_npm=$(sed -n 's/^ARG NPM_VERSION=//p' Dockerfile)
+          expected_npm_brace_expansion=$(sed -n 's/^ARG NPM_BRACE_EXPANSION_VERSION=//p' Dockerfile)
+          printf '%s\n' "$expected_npm" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'
+          printf '%s\n' "$expected_npm_brace_expansion" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'
+          actual_npm=$(docker run --rm --entrypoint npm edmonton-infill-tracker:security-scan --version)
+          [ "$actual_npm" = "$expected_npm" ] || {
+            printf 'Expected npm %s, found %s\n' "$expected_npm" "$actual_npm" >&2
+            exit 1
+          }
+          actual_npm_brace_expansion=$(docker run --rm --entrypoint node \
+            edmonton-infill-tracker:security-scan \
+            --eval "process.stdout.write(require('/usr/local/lib/node_modules/npm/node_modules/brace-expansion/package.json').version)")
+          [ "$actual_npm_brace_expansion" = "$expected_npm_brace_expansion" ] || {
+            printf 'Expected npm brace-expansion %s, found %s\n' \
+              "$expected_npm_brace_expansion" "$actual_npm_brace_expansion" >&2
+            exit 1
+          }
+
+      - name: Validate Caddy configuration
+        run: >-
+          docker run
+          --rm
+          --volume "$GITHUB_WORKSPACE/deploy/Caddyfile.example:/etc/caddy/Caddyfile:ro"
+          edmonton-infill-caddy:security-scan
+          caddy validate --config /etc/caddy/Caddyfile
+
+      - name: Validate source-pinned Caddy build metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected_go=$(sed -n 's/^ARG CADDY_GO_VERSION=//p' deploy/caddy/Dockerfile)
+          expected_caddy=$(awk '$1 == "require" && $2 == "github.com/caddyserver/caddy/v2" { sub(/^v/, "", $3); print $3 }' deploy/caddy/go.mod)
+          expected_x_text=$(awk '$1 == "golang.org/x/text" { sub(/^v/, "", $2); print $2 }' deploy/caddy/go.mod)
+          expected_grpc=$(awk '$1 == "google.golang.org/grpc" { sub(/^v/, "", $2); print $2 }' deploy/caddy/go.mod)
+          for version in "$expected_go" "$expected_caddy" "$expected_x_text" "$expected_grpc"; do
+            printf '%s\n' "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'
+          done
+          build_info=$(docker run --rm edmonton-infill-caddy:security-scan caddy build-info)
+          printf '%s\n' "$build_info" | grep -Fqx $'go\tgo'"$expected_go"
+          printf '%s\n' "$build_info" | grep -Fq $'dep\tgithub.com/caddyserver/caddy/v2\tv'"$expected_caddy"$'\t'
+          printf '%s\n' "$build_info" | grep -Fq $'dep\tgolang.org/x/text\tv'"$expected_x_text"$'\t'
+          printf '%s\n' "$build_info" | grep -Fq $'dep\tgoogle.golang.org/grpc\tv'"$expected_grpc"$'\t'
+
+      - name: Validate PostGIS runtime image
+        shell: bash
+        run: |
+          set -euo pipefail
+          database_container="support-postgis-${GITHUB_RUN_ID}"
+          cleanup() {
+            docker rm --force "$database_container" >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT
+          docker run --detach \
+            --name "$database_container" \
+            --env POSTGRES_DB=infill \
+            --env POSTGRES_USER=infill \
+            --env POSTGRES_PASSWORD=ci-postgis-password \
+            edmonton-infill-postgis:security-scan
+          ready=0
+          postgis_version=""
+          for attempt in $(seq 1 30); do
+            if postgis_version=$(docker exec "$database_container" \
+              psql --username infill --dbname infill --tuples-only --command 'SELECT PostGIS_Version();' \
+              2>/dev/null); then
+              ready=1
+              break
+            fi
+            sleep 2
+          done
+          [ "$ready" -eq 1 ] || {
+            docker logs "$database_container"
+            exit 1
+          }
+          printf 'PostGIS runtime: %s\n' "$postgis_version"
+
+      - name: Scan application image
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: image
+          image-ref: edmonton-infill-tracker:security-scan
+          format: table
+          exit-code: "1"
+          ignore-unfixed: true
+          vuln-type: os,library
+          severity: HIGH,CRITICAL
+
+      - name: Scan PostGIS image
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: image
+          image-ref: edmonton-infill-postgis:security-scan
+          format: table
+          exit-code: "1"
+          ignore-unfixed: true
+          vuln-type: os,library
+          severity: HIGH,CRITICAL
+          # The official gosu project directs generic Go-stdlib scanner
+          # findings through govulncheck reachability analysis. Keep these
+          # audited exceptions path-scoped and expiring; all new IDs still fail.
+          trivyignores: .github/trivyignore-postgis-gosu.yaml
+
+      - name: Scan Caddy image
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: image
+          image-ref: edmonton-infill-caddy:security-scan
+          format: table
+          exit-code: "1"
+          ignore-unfixed: true
+          vuln-type: os,library
+          severity: HIGH,CRITICAL
+
   e2e:
     name: Playwright smoke
     runs-on: ubuntu-latest
@@ -257,6 +409,7 @@ jobs:
       - quality
       - integration
       - build
+      - container-security
     services:
       postgres:
         image: postgis/postgis:17-3.5
@@ -278,7 +431,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
-          node-version: 22.23.1
+          node-version: 22.23.2
           cache: npm
 
       - name: Install dependencies

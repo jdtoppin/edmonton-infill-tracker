@@ -49,6 +49,7 @@ Protect `main` in GitHub repository settings with a ruleset:
    - `Quality`
    - `Integration`
    - `Production build`
+   - `Container security`
    - `Playwright smoke`
 7. Block force pushes and branch deletion.
 8. Require linear history and allow squash merging.
@@ -56,6 +57,14 @@ Protect `main` in GitHub repository settings with a ruleset:
 10. Require signed commits if every maintainer and approved automation can support them; do not weaken required CI to enable this.
 
 Also enable secret scanning, push protection, Dependabot alerts, and private vulnerability reporting when they are available for the repository plan.
+
+Container-scan exceptions must identify individual findings, a single affected path, an audit
+reason, and an expiry date. The only current exception file is applied to the upstream `gosu`
+binary in the PostGIS image. It follows the
+[`gosu` security policy](https://github.com/tianon/gosu/blob/1.19/SECURITY.md), which requires
+reachability analysis for generic Go standard-library reports. It does not suppress new CVE IDs,
+other files, the application image, Caddy, PostgreSQL, PostGIS, or Debian packages. CI must fail
+again when an exception expires so it is re-audited rather than silently becoming permanent.
 
 Create the `bug`, `enhancement`, and `data-quality` labels referenced by the issue forms. Triage data-quality reports separately from software defects because upstream public-data errors, normalization problems, and classification-rule errors need different remedies.
 
@@ -68,6 +77,7 @@ Create the `bug`, `enhancement`, and `data-quality` labels referenced by the iss
 - Show how imports remain idempotent and alerts remain deduplicated when those areas change.
 - Never paste production records, addresses beyond the minimum public evidence, user email addresses, tokens, or `.env` content into issues, commits, screenshots, or CI logs.
 - Require human review for dependency major versions and database image changes. Dependabot groups only minor and patch npm updates automatically.
+- Let the scheduled support-component workflow coordinate stable same-major Node.js, npm, npm bundled-dependency security overrides, Caddy, Caddy's Go toolchain/x-text/gRPC security pins, and PostgreSQL. Go toolchain proposals must stay within the current major/minor release line. Let Dependabot propose the remaining Caddy transitive Go dependency updates. Every Caddy build must use the exact local toolchain, verify the committed `go.sum`, and compile with read-only module resolution. The support workflow may push only an isolated `codex/support-components-*` branch and may open a pull request only after a dispatched full CI run passes; neither update path may merge or deploy.
 
 ## Releases and deployment
 

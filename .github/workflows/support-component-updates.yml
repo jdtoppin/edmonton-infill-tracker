@@ -1,0 +1,183 @@
+name: Support component updates
+
+on:
+  schedule:
+    - cron: "17 16 * * 1"
+  workflow_dispatch:
+
+permissions:
+  actions: write
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: support-component-updates
+  cancel-in-progress: false
+
+jobs:
+  propose:
+    name: Propose incremental support updates
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Check out trusted main branch
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 22.23.2
+          cache: npm
+
+      - name: Set up Go
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version: 1.26.5
+          cache-dependency-path: deploy/caddy/go.sum
+
+      - name: Check for an existing support-component proposal
+        id: pending
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          open_pr=$(gh pr list \
+            --state open \
+            --base main \
+            --limit 100 \
+            --json headRefName,isCrossRepository,url \
+            --jq '[.[] | select(.isCrossRepository == false and (.headRefName | startswith("codex/support-components-")))][0].url // empty')
+          if [ -n "$open_pr" ]; then
+            printf 'exists=true\n' >> "$GITHUB_OUTPUT"
+            printf 'url=%s\n' "$open_pr" >> "$GITHUB_OUTPUT"
+          else
+            printf 'exists=false\n' >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Apply same-major support-component updates
+        if: steps.pending.outputs.exists != 'true'
+        id: updates
+        run: node scripts/support-component-updates.mjs --apply
+
+      - name: Refresh and verify Caddy module checksums
+        if: steps.updates.outputs.changed == 'true'
+        working-directory: deploy/caddy
+        run: |
+          go mod tidy
+          go mod verify
+
+      - name: Verify the proposed file scope
+        if: steps.updates.outputs.changed == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --check
+          unexpected_files=$(git diff --name-only --diff-filter=ACMRTUXB | grep -Ev '^(Dockerfile|docker-compose\.yml|docker-compose\.dev\.yml|deploy/caddy/(Dockerfile|go\.mod|go\.sum)|deploy/postgis/Dockerfile|\.github/workflows/ci\.yml|\.github/workflows/support-component-updates\.yml)$' || true)
+          if [ -n "$unexpected_files" ]; then
+            printf 'The updater changed files outside its allowlist:\n%s\n' "$unexpected_files" >&2
+            exit 1
+          fi
+
+      - name: Audit the exact npm lockfile
+        if: steps.updates.outputs.changed == 'true'
+        run: |
+          npm ci
+          npm audit --audit-level=high
+
+      - name: Push an isolated proposal branch
+        if: steps.updates.outputs.changed == 'true'
+        id: branch
+        shell: bash
+        env:
+          UPDATE_SUMMARY: ${{ steps.updates.outputs.summary }}
+        run: |
+          set -euo pipefail
+          update_branch="codex/support-components-${GITHUB_RUN_ID}"
+          case "$update_branch" in
+            codex/support-components-[0-9]*) ;;
+            *) echo "Generated an invalid update branch name." >&2; exit 1 ;;
+          esac
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            Dockerfile \
+            docker-compose.yml \
+            docker-compose.dev.yml \
+            deploy/caddy/Dockerfile \
+            deploy/caddy/go.mod \
+            deploy/caddy/go.sum \
+            deploy/postgis/Dockerfile \
+            .github/workflows/ci.yml \
+            .github/workflows/support-component-updates.yml
+          git commit -m "chore(security): update support components" -m "$UPDATE_SUMMARY"
+          git push origin "HEAD:refs/heads/$update_branch"
+          printf 'name=%s\n' "$update_branch" >> "$GITHUB_OUTPUT"
+          printf 'sha=%s\n' "$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Run the full project CI on the proposal
+        if: steps.updates.outputs.changed == 'true'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          UPDATE_BRANCH: ${{ steps.branch.outputs.name }}
+          UPDATE_SHA: ${{ steps.branch.outputs.sha }}
+        run: |
+          set -euo pipefail
+          gh workflow run ci.yml --ref "$UPDATE_BRANCH"
+          run_id=""
+          for attempt in $(seq 1 30); do
+            run_id=$(gh run list \
+              --workflow ci.yml \
+              --commit "$UPDATE_SHA" \
+              --event workflow_dispatch \
+              --limit 1 \
+              --json databaseId \
+              --jq '.[0].databaseId // empty')
+            [ -z "$run_id" ] || break
+            sleep 5
+          done
+          [ -n "$run_id" ] || {
+            echo "The dispatched CI run could not be located; no pull request will be opened." >&2
+            exit 1
+          }
+          gh run watch "$run_id" --exit-status
+
+      - name: Open a reviewable pull request
+        if: steps.updates.outputs.changed == 'true'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          UPDATE_BRANCH: ${{ steps.branch.outputs.name }}
+          UPDATE_SUMMARY: ${{ steps.updates.outputs.summary }}
+        run: |
+          set -euo pipefail
+          body_file="$RUNNER_TEMP/support-update-pr.md"
+          printf '%s\n' \
+            '## Automated support-component update' \
+            '' \
+            "$UPDATE_SUMMARY" \
+            '' \
+            'This proposal is limited to same-major Node.js, npm, npm bundled brace-expansion, Caddy, its reviewed Go build dependencies, and PostgreSQL releases; Go toolchain changes are patch-only within the current release line.' \
+            'The exact npm lockfile audit and the full project CI workflow passed before this PR was opened.' \
+            'It is not merged or deployed automatically; review release notes and merge manually.' \
+            > "$body_file"
+          gh pr create \
+            --base main \
+            --head "$UPDATE_BRANCH" \
+            --title "chore(security): update support components" \
+            --body-file "$body_file"
+
+      - name: Report that pins are current
+        if: steps.pending.outputs.exists != 'true' && steps.updates.outputs.changed != 'true'
+        run: echo "Node.js, npm, npm bundled brace-expansion, Caddy, its reviewed Go build dependencies, and PostgreSQL are already on their newest eligible incremental releases."
+
+      - name: Report the pending proposal
+        if: steps.pending.outputs.exists == 'true'
+        env:
+          OPEN_PR_URL: ${{ steps.pending.outputs.url }}
+        run: echo "A support-component proposal is already awaiting review at $OPEN_PR_URL"

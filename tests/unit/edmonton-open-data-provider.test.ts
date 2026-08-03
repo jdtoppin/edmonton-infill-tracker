@@ -167,6 +167,67 @@ describe("Edmonton Socrata permit provider", () => {
     if (row.ok) expect(row.permit.occupancyGrantedDate).toBeNull();
   });
 
+  it("quarantines a street-only row without blocking the next valid permit", async () => {
+    const fetchImplementation = vi.fn<typeof fetch>(async (input) => {
+      const url = new URL(String(input));
+      if (url.pathname.startsWith("/api/views/")) return jsonResponse(metadata("development"));
+      if (url.searchParams.get("$select") === "count(*) as count") {
+        return jsonResponse([{ count: "4" }]);
+      }
+      return jsonResponse([
+        {
+          city_file_number: "DP-INCOMPLETE-ADDRESS",
+          permit_type: "Development Permit",
+          permit_date: "2026-07-01T00:00:00.000",
+          address: "101A AVENUE NW",
+        },
+        {
+          city_file_number: "DP-COMPLETE-ADDRESS",
+          permit_type: "Development Permit",
+          permit_date: "2026-07-02T00:00:00.000",
+          address: "5308 - 103A AVENUE NW",
+        },
+        {
+          city_file_number: "DP-CURRENT-STREET-TYPE",
+          permit_type: "Development Permit",
+          permit_date: "2026-07-03T00:00:00.000",
+          address: "8980 - ELVES LOOP NW",
+        },
+        {
+          city_file_number: "DP-COMMA-UNIT",
+          permit_type: "Development Permit",
+          permit_date: "2026-07-04T00:00:00.000",
+          address: "317, 12025 - 48 AVENUE NW",
+        },
+      ]);
+    });
+
+    const page = await providerWithFetch(fetchImplementation).fetchPage({
+      dataset: "development",
+      expectedRevision: "100",
+    });
+
+    expect(page.rows[0]).toMatchObject({
+      ok: false,
+      error: {
+        code: "INVALID_SOURCE_ROW",
+        issues: [expect.stringContaining("rawAddress")],
+      },
+    });
+    expect(page.rows[1]).toMatchObject({
+      ok: true,
+      permit: { rawAddress: "5308 - 103A AVENUE NW" },
+    });
+    expect(page.rows[2]).toMatchObject({
+      ok: true,
+      permit: { rawAddress: "8980 - ELVES LOOP NW" },
+    });
+    expect(page.rows[3]).toMatchObject({
+      ok: true,
+      permit: { rawAddress: "317, 12025 - 48 AVENUE NW" },
+    });
+  });
+
   it("quarantines malformed nonblank permit dates instead of silently clearing them", async () => {
     const fetchImplementation = vi.fn<typeof fetch>(async (input) => {
       const url = new URL(String(input));

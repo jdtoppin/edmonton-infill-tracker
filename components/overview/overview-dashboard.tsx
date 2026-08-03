@@ -206,6 +206,7 @@ export function OverviewDashboard({
           areas={data.neighbourhoodBreakdown}
           mapStyleUrl={mapStyleUrl}
           mapTileUrl={mapTileUrl}
+          projects={data.mapProjects}
           range={data.range}
         />
 
@@ -217,7 +218,11 @@ export function OverviewDashboard({
                 <h2>High-confidence projects</h2>
               </div>
               <Link
-                href={projectsHref(data.range, { minConfidence: "80" })}
+                href={projectsHref(data.range, {
+                  minConfidence: "80",
+                  view: "split",
+                  scope: "core",
+                })}
                 className="inline-flex items-center gap-1 text-xs font-semibold text-[var(--teal)] no-underline"
               >
                 View all <ArrowRight size={14} />
@@ -245,8 +250,13 @@ export function OverviewDashboard({
                 {data.neighbourhoodBreakdown.slice(0, 6).map((area) => (
                   <Link
                     key={area.id}
-                    href={projectsHref(data.range, { neighbourhood: area.cityId })}
-                    className="block text-inherit no-underline"
+                    href={projectsHref(data.range, {
+                      neighbourhood: area.cityId,
+                      view: "split",
+                      scope: "core",
+                    })}
+                    className="block rounded-md text-inherit no-underline transition-colors outline-none hover:bg-[#fbfcfa] focus-visible:ring-2 focus-visible:ring-[var(--teal)] focus-visible:ring-offset-2"
+                    aria-label={`Explore ${area.name}: ${area.count} ${area.count === 1 ? "project" : "projects"} in ${data.range.windowLabel.toLocaleLowerCase("en-CA")}`}
                   >
                     <div className="mb-1.5 flex items-center justify-between gap-3 text-xs">
                       <strong className="text-[var(--spruce)]">{area.name}</strong>
@@ -280,7 +290,16 @@ export function OverviewDashboard({
             ) : (
               <div className="space-y-3">
                 {data.categoryBreakdown.slice(0, 7).map((category) => (
-                  <div key={category.category}>
+                  <Link
+                    key={category.category}
+                    href={projectsHref(data.range, {
+                      category: category.category,
+                      view: "split",
+                      scope: "core",
+                    })}
+                    className="block rounded-md text-inherit no-underline transition-colors outline-none hover:bg-[#fbfcfa] focus-visible:ring-2 focus-visible:ring-[var(--teal)] focus-visible:ring-offset-2"
+                    aria-label={`Explore ${category.label}: ${category.count} ${category.count === 1 ? "project" : "projects"} in ${data.range.windowLabel.toLocaleLowerCase("en-CA")}`}
+                  >
                     <div className="mb-1 flex justify-between gap-3 text-xs">
                       <span>{category.label}</span>
                       <strong>{category.count}</strong>
@@ -291,7 +310,7 @@ export function OverviewDashboard({
                         style={{ width: `${Math.max(4, (category.count / maxCategory) * 100)}%` }}
                       />
                     </div>
-                  </div>
+                  </Link>
                 ))}
               </div>
             )}

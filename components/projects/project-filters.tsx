@@ -14,6 +14,7 @@ export function ProjectFiltersForm({
   options: ProjectFilterOptions;
 }) {
   const hasFilters = Boolean(
+    filters.scope !== "citywide" ||
     filters.q ||
     filters.neighbourhoods.length ||
     filters.categories.length ||
@@ -34,9 +35,16 @@ export function ProjectFiltersForm({
       className="rounded-xl border border-[var(--border)] bg-white p-4"
     >
       <input type="hidden" name="view" value={filters.view} />
+      {filters.scope === "core" && <input type="hidden" name="scope" value="core" />}
       <input type="hidden" name="sort" value={filters.sort} />
       <input type="hidden" name="direction" value={filters.direction} />
       <input type="hidden" name="pageSize" value={filters.pageSize} />
+      {filters.scope === "core" && (
+        <p className="mt-0 mb-3 rounded-lg bg-[var(--teal-soft)] px-3 py-2 text-xs text-[var(--teal)]">
+          <strong>Core infill area:</strong> this dashboard drill-down excludes greenfield and
+          unclassified projects so its results match the overview.
+        </p>
+      )}
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
         <label className="text-xs font-semibold text-[var(--ink)] md:col-span-2 xl:col-span-1">
           Address or permit
@@ -113,14 +121,33 @@ export function ProjectFiltersForm({
         <summary className="cursor-pointer text-xs font-bold text-[var(--teal)]">
           Date, confidence, value, and unit filters
         </summary>
+        <p
+          id="project-date-filter-help"
+          className="mt-3 mb-0 text-xs leading-5 text-[var(--muted)]"
+        >
+          Date filters use City application, issue, and occupancy dates only. A tracker observation
+          date for an otherwise undated row is excluded.
+        </p>
         <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
           <label className="text-xs font-semibold">
             Latest infill milestone from
-            <input name="from" type="date" defaultValue={filters.from} className={fieldClass} />
+            <input
+              name="from"
+              type="date"
+              defaultValue={filters.from}
+              aria-describedby="project-date-filter-help"
+              className={fieldClass}
+            />
           </label>
           <label className="text-xs font-semibold">
             Latest infill milestone to
-            <input name="to" type="date" defaultValue={filters.to} className={fieldClass} />
+            <input
+              name="to"
+              type="date"
+              defaultValue={filters.to}
+              aria-describedby="project-date-filter-help"
+              className={fieldClass}
+            />
           </label>
           <label className="text-xs font-semibold">
             Minimum confidence

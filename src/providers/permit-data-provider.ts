@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { normalizeEdmontonAddress } from "../domain/address-normalization";
+
 export const permitDatasetSchema = z.enum(["development", "building"]);
 export type PermitDataset = z.infer<typeof permitDatasetSchema>;
 
@@ -7,33 +9,43 @@ export type JsonPrimitive = string | number | boolean | null;
 export type JsonValue = JsonPrimitive | JsonValue[] | { [key: string]: JsonValue };
 export type RawPermitPayload = { [key: string]: JsonValue };
 
-export const normalizedPermitRecordSchema = z.object({
-  sourceProvider: z.string().min(1),
-  sourceDataset: permitDatasetSchema,
-  sourceDatasetId: z.string().regex(/^[a-z0-9]{4}-[a-z0-9]{4}$/i),
-  sourceRecordIdentifier: z.string().trim().min(1).max(200),
-  systemId: z.string().trim().min(1).max(200).nullable(),
-  sourceUpdatedAt: z.date().nullable(),
-  permitNumber: z.string().trim().min(1).max(200).nullable(),
-  permitType: z.string().trim().min(1).max(300),
-  permitSubtype: z.string().trim().min(1).max(300).nullable(),
-  applicationDate: z.date().nullable(),
-  issueDate: z.date().nullable(),
-  status: z.string().trim().min(1).max(200).nullable(),
-  workDescription: z.string().trim().min(1).max(50_000).nullable(),
-  buildingType: z.string().trim().min(1).max(500).nullable(),
-  constructionValue: z
-    .string()
-    .regex(/^-?\d+(?:\.\d+)?$/)
-    .nullable(),
-  unitsAdded: z.number().int().min(-100_000).max(100_000).nullable(),
-  occupancyGrantedDate: z.date().nullable(),
-  rawAddress: z.string().trim().min(1).max(1_000),
-  neighbourhoodCityId: z.string().trim().min(1).max(100).nullable(),
-  neighbourhoodName: z.string().trim().min(1).max(500).nullable(),
-  latitude: z.number().min(-90).max(90).nullable(),
-  longitude: z.number().min(-180).max(180).nullable(),
-});
+export const normalizedPermitRecordSchema = z
+  .object({
+    sourceProvider: z.string().min(1),
+    sourceDataset: permitDatasetSchema,
+    sourceDatasetId: z.string().regex(/^[a-z0-9]{4}-[a-z0-9]{4}$/i),
+    sourceRecordIdentifier: z.string().trim().min(1).max(200),
+    systemId: z.string().trim().min(1).max(200).nullable(),
+    sourceUpdatedAt: z.date().nullable(),
+    permitNumber: z.string().trim().min(1).max(200).nullable(),
+    permitType: z.string().trim().min(1).max(300),
+    permitSubtype: z.string().trim().min(1).max(300).nullable(),
+    applicationDate: z.date().nullable(),
+    issueDate: z.date().nullable(),
+    status: z.string().trim().min(1).max(200).nullable(),
+    workDescription: z.string().trim().min(1).max(50_000).nullable(),
+    buildingType: z.string().trim().min(1).max(500).nullable(),
+    constructionValue: z
+      .string()
+      .regex(/^-?\d+(?:\.\d+)?$/)
+      .nullable(),
+    unitsAdded: z.number().int().min(-100_000).max(100_000).nullable(),
+    occupancyGrantedDate: z.date().nullable(),
+    rawAddress: z.string().trim().min(1).max(1_000),
+    neighbourhoodCityId: z.string().trim().min(1).max(100).nullable(),
+    neighbourhoodName: z.string().trim().min(1).max(500).nullable(),
+    latitude: z.number().min(-90).max(90).nullable(),
+    longitude: z.number().min(-180).max(180).nullable(),
+  })
+  .superRefine((record, context) => {
+    if (!normalizeEdmontonAddress(record.rawAddress).siteAddressKey) {
+      context.addIssue({
+        code: "custom",
+        path: ["rawAddress"],
+        message: "A complete Edmonton civic address with a building number is required.",
+      });
+    }
+  });
 
 export type NormalizedPermitRecord = z.infer<typeof normalizedPermitRecordSchema>;
 

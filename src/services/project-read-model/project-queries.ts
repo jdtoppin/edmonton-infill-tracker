@@ -280,6 +280,15 @@ export type ProjectDetail = {
 
 export type LifecycleCounts = { development: number; building: number; occupancy: number };
 
+export type DashboardMapProject = {
+  id: string;
+  neighbourhoodId: string;
+  address: string;
+  latitude: number | null;
+  longitude: number | null;
+  confidence: number;
+};
+
 export type DashboardOverview = {
   dataMode: ReadModelDataMode;
   generatedAt: string;
@@ -295,6 +304,7 @@ export type DashboardOverview = {
     latitude: number | null;
     longitude: number | null;
   }>;
+  mapProjects: DashboardMapProject[];
   highConfidenceProjects: ProjectListItem[];
   recentDemolitions: ProjectListItem[];
   recentConstruction: ProjectListItem[];
@@ -375,6 +385,9 @@ export function buildPublicProjectWhere(filters: ProjectFilters): Prisma.Project
 
   return {
     ...publicBaseWhere,
+    ...(filters.scope === "core"
+      ? { infillAreaClassification: InfillAreaClassification.CORE }
+      : {}),
     ...(filters.neighbourhoods.length
       ? {
           neighbourhood: {
@@ -933,6 +946,55 @@ export async function getDashboardOverview(
         : [],
     ),
   );
+  const neighbourhoodBreakdown = neighbourhoodGroups
+    .flatMap((item) => {
+      const neighbourhood = neighbourhoodById.get(item.neighbourhoodId);
+      return neighbourhood
+        ? [
+            {
+              id: neighbourhood.id,
+              cityId: neighbourhood.cityNeighbourhoodId,
+              name: neighbourhood.name,
+              count: item._count._all,
+              latitude: coordinatesByNeighbourhoodId.get(neighbourhood.id)?.latitude ?? null,
+              longitude: coordinatesByNeighbourhoodId.get(neighbourhood.id)?.longitude ?? null,
+            },
+          ]
+        : [];
+    })
+    .sort((left, right) => right.count - left.count || left.name.localeCompare(right.name));
+  const leadingNeighbourhoodIds = neighbourhoodBreakdown.slice(0, 10).map(({ id }) => id);
+  const mapProjectRecords =
+    leadingNeighbourhoodIds.length === 0
+      ? []
+      : await db.project.findMany({
+          where: {
+            AND: [
+              activeProjectWhere,
+              { neighbourhoodId: { in: leadingNeighbourhoodIds } },
+              {
+                address: {
+                  latitude: { not: null },
+                  longitude: { not: null },
+                },
+              },
+            ],
+          },
+          select: {
+            id: true,
+            neighbourhoodId: true,
+            infillConfidence: true,
+            address: {
+              select: {
+                normalizedStreetAddress: true,
+                latitude: true,
+                longitude: true,
+              },
+            },
+          },
+          orderBy: [{ latestInfillActivityDate: { sort: "desc", nulls: "last" } }, { id: "asc" }],
+          take: 5_000,
+        });
   const warnings: DashboardOverview["warnings"] = [];
 
   if (!latestImport) {
@@ -1010,23 +1072,15 @@ export async function getDashboardOverview(
         count: item._count._all,
       }))
       .sort((left, right) => right.count - left.count || left.label.localeCompare(right.label)),
-    neighbourhoodBreakdown: neighbourhoodGroups
-      .flatMap((item) => {
-        const neighbourhood = neighbourhoodById.get(item.neighbourhoodId);
-        return neighbourhood
-          ? [
-              {
-                id: neighbourhood.id,
-                cityId: neighbourhood.cityNeighbourhoodId,
-                name: neighbourhood.name,
-                count: item._count._all,
-                latitude: coordinatesByNeighbourhoodId.get(neighbourhood.id)?.latitude ?? null,
-                longitude: coordinatesByNeighbourhoodId.get(neighbourhood.id)?.longitude ?? null,
-              },
-            ]
-          : [];
-      })
-      .sort((left, right) => right.count - left.count || left.name.localeCompare(right.name)),
+    neighbourhoodBreakdown,
+    mapProjects: mapProjectRecords.map((project) => ({
+      id: project.id,
+      neighbourhoodId: project.neighbourhoodId,
+      address: project.address.normalizedStreetAddress,
+      latitude: serializeDecimal(project.address.latitude),
+      longitude: serializeDecimal(project.address.longitude),
+      confidence: project.infillConfidence,
+    })),
     highConfidenceProjects: highConfidenceRecords.map(serializeProjectListRecord),
     recentDemolitions,
     recentConstruction,
@@ -1473,6 +1527,14 @@ export function getPreviewDashboardOverview(
             : located.reduce((total, project) => total + project.longitude, 0) / located.length,
       };
     }),
+    mapProjects: activeItems.map((project) => ({
+      id: project.id,
+      neighbourhoodId: project.neighbourhood.id,
+      address: project.address,
+      latitude: project.latitude,
+      longitude: project.longitude,
+      confidence: project.confidence,
+    })),
     highConfidenceProjects: activeItems.filter((item) => item.confidence >= 80),
     recentDemolitions: activeItems.filter((item) => item.id === items[0]?.id),
     recentConstruction: activeItems,

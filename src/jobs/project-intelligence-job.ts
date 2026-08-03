@@ -1,4 +1,6 @@
 import type { PrismaClient } from "../generated/prisma/client";
+import { ProjectMatchStatus } from "../generated/prisma/enums";
+import { CURRENT_ADDRESS_NORMALIZATION_VERSION } from "../domain/address-normalization";
 import {
   assertActiveProjectJobLease,
   matchPermitEvent,
@@ -51,7 +53,10 @@ export async function runProjectMatchingJob(
     signal?.throwIfAborted();
     const permits = await db.permitEvent.findMany({
       where: {
-        projectEvent: null,
+        OR: [
+          { projectMatchStatus: ProjectMatchStatus.PENDING },
+          { addressNormalizationVersion: { lt: CURRENT_ADDRESS_NORMALIZATION_VERSION } },
+        ],
         ...(afterId ? { id: { gt: afterId } } : {}),
       },
       select: { id: true },

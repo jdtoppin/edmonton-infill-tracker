@@ -103,7 +103,9 @@ describe.skipIf(!hasDatabase)("persisted infill episode recency", () => {
     ]);
 
     for (const permit of permits) {
-      projectId = (await matchPermitEvent(db, permit.id)).projectId;
+      const matched = await matchPermitEvent(db, permit.id);
+      if (!matched.projectId) throw new Error("Synthetic civic permit was not matched.");
+      projectId = matched.projectId;
     }
   });
 

@@ -116,6 +116,12 @@ enum JobType {
   DATA_QUALITY_CHECK
 }
 
+enum ProjectMatchStatus {
+  PENDING
+  MATCHED
+  UNMATCHABLE
+}
+
 enum ProjectActionType {
   MANUAL_OVERRIDE
   EVENT_REASSIGNED
@@ -278,31 +284,35 @@ model ImportFailure {
 }
 
 model PermitEvent {
-  id                     String    @id @default(cuid())
-  sourceProvider         String
+  id                          String             @id @default(cuid())
+  sourceProvider              String
   // Normalized provider dataset identity. Display labels such as Edmonton's
   // JOB_CATEGORY are not reliable substitutes for permit provenance.
-  sourceDataset          String?
-  sourceRecordIdentifier String
-  permitNumber           String?
-  permitType             String
-  permitSubtype          String?
-  applicationDate        DateTime? @db.Date
-  issueDate              DateTime? @db.Date
-  status                 String?
-  workDescription        String?
-  buildingType           String?
-  constructionValue      Decimal?  @db.Decimal(15, 2)
-  unitsAdded             Int?
-  occupancyGrantedDate   DateTime? @db.Date
-  addressId              String
-  neighbourhoodId        String?
-  rawRecordId            String?   @unique
-  rawSourcePayload       Json
-  importedAt             DateTime  @default(now()) @db.Timestamptz(3)
-  sourceUpdatedAt        DateTime? @db.Timestamptz(3)
-  createdAt              DateTime  @default(now()) @db.Timestamptz(3)
-  updatedAt              DateTime  @updatedAt @db.Timestamptz(3)
+  sourceDataset               String?
+  sourceRecordIdentifier      String
+  permitNumber                String?
+  permitType                  String
+  permitSubtype               String?
+  applicationDate             DateTime?          @db.Date
+  issueDate                   DateTime?          @db.Date
+  status                      String?
+  workDescription             String?
+  buildingType                String?
+  constructionValue           Decimal?           @db.Decimal(15, 2)
+  unitsAdded                  Int?
+  occupancyGrantedDate        DateTime?          @db.Date
+  addressId                   String
+  neighbourhoodId             String?
+  rawRecordId                 String?            @unique
+  rawSourcePayload            Json
+  importedAt                  DateTime           @default(now()) @db.Timestamptz(3)
+  sourceUpdatedAt             DateTime?          @db.Timestamptz(3)
+  // Incremented when address parsing rules change. Legacy rows are reconciled
+  // from their immutable raw payload before project matching.
+  addressNormalizationVersion Int                @default(2)
+  projectMatchStatus          ProjectMatchStatus @default(PENDING)
+  createdAt                   DateTime           @default(now()) @db.Timestamptz(3)
+  updatedAt                   DateTime           @updatedAt @db.Timestamptz(3)
 
   address        Address          @relation(fields: [addressId], references: [id], onDelete: Restrict)
   neighbourhood  Neighbourhood?   @relation(fields: [neighbourhoodId], references: [id], onDelete: Restrict)
@@ -320,6 +330,8 @@ model PermitEvent {
   @@index([applicationDate])
   @@index([occupancyGrantedDate])
   @@index([sourceUpdatedAt])
+  @@index([addressNormalizationVersion, id])
+  @@index([projectMatchStatus, id])
 }
 
 model Project {

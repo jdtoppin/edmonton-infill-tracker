@@ -138,6 +138,33 @@ Avoid `docker compose down --volumes`: it deletes the named PostgreSQL volume.
 
 There is intentionally no GitHub-to-Mac automatic deployment in the MVP.
 
+Node.js, npm, npm's bundled `brace-expansion` security override, Caddy, Caddy's Go toolchain and
+security-patched Go dependencies, and PostgreSQL pins are checked weekly by the `Support component
+updates` workflow. It considers stable same-major releases, while keeping Go toolchain updates to
+patches within the current Go release line. It updates every coordinated
+deployment pin together, audits the npm lockfile, pushes an isolated `codex/` proposal branch, and
+dispatches the complete CI workflow. A pull request is opened only after that run passes; it is never
+merged or deployed automatically. npm package minor/patch updates, GitHub Actions, and Caddy's
+remaining transitive Go dependencies are proposed separately by Dependabot, while major releases
+remain deliberate review work.
+
+The regular CI workflow also runs weekly even when source code has not changed. It fails on high or
+critical npm advisories and on fixed high or critical vulnerabilities found in the built application,
+custom PostGIS, or source-pinned Caddy images. The Caddy image is rebuilt from the tagged standard
+module set with reviewed Go dependency overrides instead of inheriting a stale release binary. Its
+complete module graph and checksums are committed; the build verifies that graph and compiles in
+read-only module mode. Its minimal runtime receives current Alpine security packages at build time.
+The scanner action is commit-pinned and does not receive a
+third-party credential. GitHub Actions must be permitted to create pull requests for the proposal
+step; if repository policy disables that permission, the workflow leaves its tested proposal branch
+and fails visibly instead of bypassing the policy.
+
+The PostGIS scan has a separate, path-scoped, expiring exception file for audited Go
+standard-library reports against the upstream `gosu` privilege-drop binary. This follows `gosu`'s
+published reachability policy; it does not hide any new finding or any finding in PostgreSQL,
+PostGIS, Debian, the application image, or Caddy. The weekly CI run fails when the exception expires
+so it must be reviewed again.
+
 Administrators can open **Administration → Application updates** to compare the compiled commit
 with the fixed public `jdtoppin/edmonton-infill-tracker` main branch and copy the command below. The
 page does not receive a GitHub credential and cannot run a command, select another repository/ref,
@@ -152,6 +179,12 @@ After reading the release notes and confirming CI passed, update with one comman
 ```
 
 It first confirms Funnel is off, refuses a dirty checkout, creates and verifies a backup, fast-forwards only, and rebuilds while the current app remains available. It then stops `caddy`, `web`, `worker`, and `scheduler`, leaves PostgreSQL running, applies migrations, confirms Funnel is still off, recreates services without deleting volumes, and checks local/Tailscale health. Review `./scripts/infill logs` afterward and exercise login plus one project view.
+
+Because reviewed support-component pins live in the repository, the same update command rebuilds the
+application, custom PostGIS image, and source-pinned Caddy image with the tested
+Node.js/npm/PostgreSQL/Caddy releases, replaces npm's bundled `brace-expansion` with the reviewed
+fixed version, and compiles Caddy with the reviewed Go security dependency pins. It does not discover
+or install an unreviewed runtime version on the Mac mini.
 
 If migration fails, the update exits with PostgreSQL running and all application-facing services stopped. Do not manually start the previous application against a possibly changed schema. Review the migration output and database logs, correct the cause, and rerun `./scripts/infill update`. To roll back instead, restore the verified pre-update backup before checking out, rebuilding, and starting the previous known-good version. A Funnel verification failure after migration also leaves application-facing services stopped; disable Funnel or restore Tailscale status access, then use `./scripts/infill start`.
 

@@ -11,7 +11,11 @@ export const EDMONTON_COORDINATE_LIMITS = {
   south: 53.2,
 } as const;
 
-export const DEFAULT_MAP_TILE_URL = "https://tile.openstreetmap.org/{z}/{x}/{y}.png";
+// Keep the old default recognizable so existing local .env files receive the
+// updated label-free presentation without a manual configuration migration.
+export const LEGACY_DEFAULT_MAP_TILE_URL = "https://tile.openstreetmap.org/{z}/{x}/{y}.png";
+export const DEFAULT_MAP_TILE_URL =
+  "https://vector.openstreetmap.org/shortbread_v1/{z}/{x}/{y}.mvt";
 export const DEFAULT_MAP_RASTER_PAINT = {
   "raster-saturation": -0.45,
   "raster-contrast": -0.08,
@@ -34,15 +38,115 @@ export function resolveMapStyle({
   if (configuredStyle) return configuredStyle;
 
   const configuredTile = mapTileUrl?.trim();
-  const tileUrl = configuredTile || DEFAULT_MAP_TILE_URL;
-  const usesDefaultTiles = !configuredTile || configuredTile === DEFAULT_MAP_TILE_URL;
+  const usesDefaultTiles =
+    !configuredTile ||
+    configuredTile === DEFAULT_MAP_TILE_URL ||
+    configuredTile === LEGACY_DEFAULT_MAP_TILE_URL;
+  if (usesDefaultTiles) {
+    return {
+      version: 8,
+      sources: {
+        "openstreetmap-shortbread": {
+          type: "vector",
+          tiles: [DEFAULT_MAP_TILE_URL],
+          minzoom: 0,
+          maxzoom: 14,
+          attribution:
+            '© <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">OpenStreetMap contributors</a>',
+        },
+      },
+      layers: [
+        {
+          id: "flat-background",
+          type: "background",
+          paint: { "background-color": "#f3f5f1" },
+        },
+        {
+          id: "ocean",
+          type: "fill",
+          source: "openstreetmap-shortbread",
+          "source-layer": "ocean",
+          paint: { "fill-color": "#d9e7e5" },
+        },
+        {
+          id: "land",
+          type: "fill",
+          source: "openstreetmap-shortbread",
+          "source-layer": "land",
+          paint: { "fill-color": "#e7ede3", "fill-opacity": 0.72 },
+        },
+        {
+          id: "water",
+          type: "fill",
+          source: "openstreetmap-shortbread",
+          "source-layer": "water_polygons",
+          paint: { "fill-color": "#cbdedc" },
+        },
+        {
+          id: "sites",
+          type: "fill",
+          source: "openstreetmap-shortbread",
+          "source-layer": "sites",
+          minzoom: 13,
+          paint: { "fill-color": "#dde7d8", "fill-opacity": 0.68 },
+        },
+        {
+          id: "street-areas",
+          type: "fill",
+          source: "openstreetmap-shortbread",
+          "source-layer": "street_polygons",
+          minzoom: 11,
+          paint: { "fill-color": "#fbfcfa" },
+        },
+        {
+          id: "buildings",
+          type: "fill",
+          source: "openstreetmap-shortbread",
+          "source-layer": "buildings",
+          minzoom: 13.5,
+          paint: {
+            "fill-color": "#d9ddda",
+            "fill-opacity": ["interpolate", ["linear"], ["zoom"], 13.5, 0.35, 16, 0.72],
+          },
+        },
+        {
+          id: "administrative-boundaries",
+          type: "line",
+          source: "openstreetmap-shortbread",
+          "source-layer": "boundaries",
+          paint: {
+            "line-color": "#aebbb8",
+            "line-opacity": 0.45,
+            "line-width": 0.8,
+            "line-dasharray": [3, 3],
+          },
+        },
+        {
+          id: "local-streets",
+          type: "line",
+          source: "openstreetmap-shortbread",
+          "source-layer": "streets",
+          paint: {
+            "line-color": [
+              "case",
+              ["in", ["get", "kind"], ["literal", ["motorway", "trunk", "primary"]]],
+              "#c7c9c1",
+              "#ffffff",
+            ],
+            "line-opacity": ["interpolate", ["linear"], ["zoom"], 5, 0.4, 10, 0.72, 14, 0.98],
+            "line-width": ["interpolate", ["linear"], ["zoom"], 5, 0.25, 10, 0.8, 14, 2.2],
+          },
+        },
+      ],
+    };
+  }
 
   return {
     version: 8,
     sources: {
       "openstreetmap-tiles": {
         type: "raster",
-        tiles: [tileUrl],
+        tiles: [configuredTile!],
         tileSize: 256,
         maxzoom: 19,
         attribution:
@@ -55,7 +159,6 @@ export function resolveMapStyle({
         type: "raster",
         source: "openstreetmap-tiles",
         minzoom: 0,
-        ...(usesDefaultTiles ? { paint: DEFAULT_MAP_RASTER_PAINT } : {}),
       },
     ],
   };

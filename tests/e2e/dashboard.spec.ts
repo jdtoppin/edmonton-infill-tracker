@@ -9,14 +9,15 @@ const transparentPng = Buffer.from(
 );
 
 async function stubTokenFreeBasemap(page: Page) {
-  await page.route("https://tile.openstreetmap.org/**", (route) =>
-    route.fulfill({
+  await page.route(/https:\/\/(?:tile|vector)\.openstreetmap\.org\/.*/, (route) => {
+    const vectorTile = route.request().url().includes("vector.openstreetmap.org");
+    return route.fulfill({
       status: 200,
-      contentType: "image/png",
+      contentType: vectorTile ? "application/vnd.mapbox-vector-tile" : "image/png",
       headers: { "cache-control": "public, max-age=3600" },
-      body: transparentPng,
-    }),
-  );
+      body: vectorTile ? Buffer.alloc(0) : transparentPng,
+    });
+  });
 }
 
 async function signIn(page: Page, role: "admin" | "user" = "admin") {
@@ -63,8 +64,28 @@ test("@responsive shows the live permit intelligence overview", async ({ page })
   });
   expect((await overviewMapRegion.boundingBox())?.height).toBeGreaterThanOrEqual(300);
   await expect(
-    overviewMap.getByText("circles do not represent neighbourhood boundaries", { exact: false }),
+    overviewMap.getByText("zoom in to reveal individual projects", { exact: false }),
   ).toBeVisible();
+  await expect(overviewMap).not.toHaveAttribute("data-map-state", "loading");
+  if ((await overviewMap.getAttribute("data-map-state")) === "ready") {
+    const summaryVisuals = overviewMap.locator("[data-neighbourhood-marker-visual]");
+    const summaryWrappers = overviewMap.locator("[data-neighbourhood-marker]");
+    const summaryCount = await summaryVisuals.count();
+    if (summaryCount > 0) {
+      const countBubbles = overviewMap.locator("[data-neighbourhood-marker] button");
+      expect(await countBubbles.count()).toBe(summaryCount);
+      await countBubbles.first().click();
+      await expect(overviewMapRegion).toHaveAttribute("data-map-detail", "projects");
+      await expect(summaryVisuals.first()).toHaveCSS("opacity", "0");
+      await expect(summaryVisuals.first()).toHaveAttribute("aria-hidden", "true");
+      await expect(summaryWrappers.first()).toHaveCSS("pointer-events", "none");
+      await expect(countBubbles.first()).toHaveAttribute("tabindex", "-1");
+      const projectMarkers = overviewMap.locator("[data-overview-project-marker]");
+      await expect(projectMarkers.first()).toBeVisible();
+      await projectMarkers.first().click();
+      await expect(overviewMap.getByRole("link", { name: "View project timeline" })).toBeVisible();
+    }
+  }
   const exploreLink = page.getByRole("main").getByRole("link", { name: "Explore projects" });
   await expect(exploreLink).toBeVisible();
   expect(await exploreLink.evaluate((element) => getComputedStyle(element).color)).toBe(
@@ -93,10 +114,15 @@ test("@responsive shows the live permit intelligence overview", async ({ page })
   );
   await expect(page.getByRole("region", { name: "Past 30 days summary" })).toBeVisible();
   await expect(exploreLink).toHaveAttribute("href", /from=\d{4}-\d{2}-\d{2}&to=\d{4}-\d{2}-\d{2}/);
-  await expect(page.getByRole("link", { name: "View all", exact: true })).toHaveAttribute(
-    "href",
-    /minConfidence=80&from=\d{4}-\d{2}-\d{2}&to=\d{4}-\d{2}-\d{2}/,
-  );
+  const highConfidenceHref = await page
+    .getByRole("link", { name: "View all", exact: true })
+    .getAttribute("href");
+  const highConfidenceParams = new URL(highConfidenceHref!, "http://infill.test").searchParams;
+  expect(highConfidenceParams.get("minConfidence")).toBe("80");
+  expect(highConfidenceParams.get("view")).toBe("split");
+  expect(highConfidenceParams.get("scope")).toBe("core");
+  expect(highConfidenceParams.get("from")).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+  expect(highConfidenceParams.get("to")).toMatch(/^\d{4}-\d{2}-\d{2}$/);
 
   await page.getByRole("link", { name: "All time", exact: true }).click();
   await expect(page).toHaveURL(/\?period=all$/);
@@ -107,13 +133,60 @@ test("@responsive shows the live permit intelligence overview", async ({ page })
   await expect(page.getByRole("region", { name: "All time summary" })).toBeVisible();
   await expect(exploreLink).toHaveAttribute("href", /^\/projects\?to=\d{4}-\d{2}-\d{2}$/);
   await expect(exploreLink).not.toHaveAttribute("href", /from=/);
-  await expect(page.getByRole("link", { name: "View all", exact: true })).toHaveAttribute(
-    "href",
-    /^\/projects\?minConfidence=80&to=\d{4}-\d{2}-\d{2}$/,
-  );
+  const allTimeHighConfidenceHref = await page
+    .getByRole("link", { name: "View all", exact: true })
+    .getAttribute("href");
+  const allTimeHighConfidenceParams = new URL(allTimeHighConfidenceHref!, "http://infill.test")
+    .searchParams;
+  expect(allTimeHighConfidenceParams.get("minConfidence")).toBe("80");
+  expect(allTimeHighConfidenceParams.get("view")).toBe("split");
+  expect(allTimeHighConfidenceParams.get("scope")).toBe("core");
+  expect(allTimeHighConfidenceParams.get("from")).toBeNull();
+  expect(allTimeHighConfidenceParams.get("to")).toMatch(/^\d{4}-\d{2}-\d{2}$/);
   const neighbourhoodLink = page.locator('a[href^="/projects?neighbourhood="]').first();
-  await expect(neighbourhoodLink).toHaveAttribute("href", /neighbourhood=.+&to=\d{4}-\d{2}-\d{2}/);
-  await expect(neighbourhoodLink).not.toHaveAttribute("href", /from=/);
+  const neighbourhoodHref = await neighbourhoodLink.getAttribute("href");
+  const neighbourhoodParams = new URL(neighbourhoodHref!, "http://infill.test").searchParams;
+  expect(neighbourhoodParams.get("neighbourhood")).toBeTruthy();
+  expect(neighbourhoodParams.get("view")).toBe("split");
+  expect(neighbourhoodParams.get("scope")).toBe("core");
+  expect(neighbourhoodParams.get("from")).toBeNull();
+  expect(neighbourhoodParams.get("to")).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+});
+
+test("drills dashboard neighbourhoods and categories into the matching split-map results", async ({
+  page,
+}) => {
+  await page.goto("/?period=all");
+
+  const neighbourhoodLink = page.locator('a[href^="/projects?neighbourhood="]').first();
+  const neighbourhoodHref = await neighbourhoodLink.getAttribute("href");
+  const neighbourhoodParams = new URL(neighbourhoodHref!, "http://infill.test").searchParams;
+  await neighbourhoodLink.click();
+
+  await expect(page.getByRole("link", { name: "Split" })).toHaveAttribute("aria-current", "page");
+  await expect(page.locator("[data-project-map]")).toBeVisible();
+  await expect(page.locator('select[name="neighbourhood"]')).toHaveValue(
+    neighbourhoodParams.get("neighbourhood")!,
+  );
+  expect(neighbourhoodParams.get("from")).toBeNull();
+  await expect(page.locator('input[name="from"]')).toHaveValue("");
+  await expect(page.locator('input[name="to"]')).toHaveValue(neighbourhoodParams.get("to")!);
+  await expect(page.getByText("Core infill area:", { exact: false })).toBeVisible();
+
+  await page.goto("/?period=all");
+  const categoryLink = page.locator('a[href^="/projects?category="]').first();
+  const categoryHref = await categoryLink.getAttribute("href");
+  const categoryParams = new URL(categoryHref!, "http://infill.test").searchParams;
+  await categoryLink.click();
+
+  await expect(page.getByRole("link", { name: "Split" })).toHaveAttribute("aria-current", "page");
+  await expect(page.locator("[data-project-map]")).toBeVisible();
+  await expect(page.locator('select[name="category"]')).toHaveValue(
+    categoryParams.get("category")!,
+  );
+  expect(categoryParams.get("from")).toBeNull();
+  await expect(page.locator('input[name="from"]')).toHaveValue("");
+  await expect(page.locator('input[name="to"]')).toHaveValue(categoryParams.get("to")!);
 });
 
 test("keeps the overview Explore projects button stationary on hover", async ({ page }) => {
@@ -183,6 +256,11 @@ test("keeps neighbourhood count markers stable while hovered", async ({ page }) 
 
   await button.click();
   await expect(overviewMap.locator("aside h3")).toHaveText(expectedName!);
+  await expect(
+    overviewMap.getByRole("region", {
+      name: "Geographic map of project counts by Edmonton neighbourhood",
+    }),
+  ).toHaveAttribute("data-map-detail", "projects");
 });
 
 test("@responsive filters projects and opens a normalized permit timeline", async ({ page }) => {
@@ -207,7 +285,7 @@ test("@responsive filters projects and opens a normalized permit timeline", asyn
     .first();
   await expect(projectLink).toBeVisible();
   await projectLink.click();
-  await expect(page.getByRole("heading", { name: "Permit timeline" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Project evidence history" })).toBeVisible();
   await expect(page.getByRole("heading", { name: /\d+% confidence/ })).toBeVisible();
 });
 

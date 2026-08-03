@@ -68,7 +68,7 @@ flowchart LR
   K --> P
   K --> N["Email / optional Pushover"]
   W --> M["MapLibre map client"]
-  M --> O["OpenStreetMap raster tiles"]
+  M --> O["OpenStreetMap vector tiles"]
 ```
 
 - **Web app:** Next.js App Router, React, strict TypeScript, Tailwind CSS, source-owned shadcn-style components, server-side live read models, and progressively enhanced URL filters.
@@ -207,7 +207,7 @@ See [implementation status](docs/implementation-status.md) for the live checklis
 - The app does not treat a confidence score as fact. Every score stores structured evidence and the UI must use qualified wording.
 - Dashboard analytics use the tracker-specific **Core infill area** inside Anthony Henday between Yellowhead Trail and Whitemud Drive. The frozen polygon is derived from the City's Road Network dataset, versioned with a checksum, and is not presented as Edmonton's official city-wide definition of infill. Mapped projects outside it receive a visible scoring adjustment; missing or implausible coordinates remain unclassified instead of being guessed.
 - City datasets are provided without warranty and can change. Preserve source timestamps, raw payloads, and attribution; review the [City of Edmonton Open Data licence](https://data.edmonton.ca/stories/s/City-of-Edmonton-Open-Data-Terms-of-Use/msh8-if28/) before distribution.
-- The default MapLibre basemap uses OpenStreetMap's standard raster tile service without an API key. Keep the required attribution visible, request only tiles needed for the interactive viewport, and follow the [OpenStreetMap tile usage policy](https://operations.osmfoundation.org/policies/tiles/).
+- The default MapLibre basemap uses OpenStreetMap Shortbread vector tiles without an API key and applies a restrained flat style locally. Current City of Edmonton neighbourhood centroids provide the visible neighbourhood labels, while obsolete `Greater …` aggregate labels are omitted. Keep the required attribution visible, request only tiles needed for the interactive viewport, and follow the [OpenStreetMap vector tile usage policy](https://operations.osmfoundation.org/policies/vector/).
 - Map tile requests go directly from each viewer's browser to the configured provider. They contain tile coordinates and ordinary web request metadata, not permit records, project addresses, login data, or application credentials. See the [map provider policy](docs/data-sources/map-provider-policy.md) before changing providers.
 - Do not automate market or social sources until an official API or connector passes the [market provider audit](docs/data-sources/market-provider-policy.md).
 - Do not include production addresses, user emails, raw records, tokens, or `.env` values in fixtures, issues, screenshots, or logs.

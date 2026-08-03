@@ -9,6 +9,7 @@ updates:
       time: "09:00"
       timezone: America/Edmonton
     open-pull-requests-limit: 10
+    rebase-strategy: auto
     groups:
       production-dependencies:
         dependency-type: production
@@ -22,28 +23,56 @@ updates:
           - patch
     commit-message:
       prefix: "chore(deps)"
+    ignore:
+      - dependency-name: "*"
+        update-types:
+          - version-update:semver-major
 
   - package-ecosystem: github-actions
     directory: /
     schedule:
-      interval: monthly
+      interval: weekly
+      day: monday
+      time: "09:30"
+      timezone: America/Edmonton
     groups:
       actions:
         patterns:
           - "*"
     commit-message:
       prefix: "chore(ci)"
+    ignore:
+      - dependency-name: "*"
+        update-types:
+          - version-update:semver-major
 
-  - package-ecosystem: docker
-    directory: /
+  - package-ecosystem: gomod
+    directory: /deploy/caddy
     schedule:
-      interval: monthly
+      interval: weekly
+      day: monday
+      time: "09:45"
+      timezone: America/Edmonton
+    open-pull-requests-limit: 5
+    rebase-strategy: auto
+    groups:
+      caddy-transitive-dependencies:
+        patterns:
+          - "*"
+        update-types:
+          - minor
+          - patch
     commit-message:
-      prefix: "chore(docker)"
+      prefix: "chore(caddy-deps)"
+    ignore:
+      - dependency-name: github.com/caddyserver/caddy/v2
+      - dependency-name: golang.org/x/text
+      - dependency-name: google.golang.org/grpc
+      - dependency-name: "*"
+        update-types:
+          - version-update:semver-major
 
-  - package-ecosystem: docker
-    directory: /deploy/postgis
-    schedule:
-      interval: monthly
-    commit-message:
-      prefix: "chore(database)"
+# Node.js, npm, npm's bundled brace-expansion security override, Caddy core, Caddy's
+# Go toolchain/x-text/gRPC security pins, and PostgreSQL are coordinated by the
+# support-component workflow. Remaining Caddy transitive Go dependencies are handled
+# here. Every proposal remains human-reviewed and undeployed until explicitly merged.
