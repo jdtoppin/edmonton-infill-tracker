@@ -296,6 +296,7 @@ test("@responsive filters projects and opens a normalized permit timeline", asyn
 });
 
 test("keeps list, map, and split views distinct and bounds the map list", async ({ page }) => {
+  await stubTokenFreeBasemap(page);
   await page.goto("/projects?q=999&view=list");
   await expect(page.locator("[data-project-map]")).toHaveCount(0);
   await expect(page.locator("table")).toHaveCount(1);
@@ -314,10 +315,29 @@ test("keeps list, map, and split views distinct and bounds the map list", async 
   );
 
   await page.goto("/projects?q=999&view=split");
-  await expect(page.locator("[data-project-map]")).toHaveCount(1);
+  const projectMap = page.locator("[data-project-map]");
+  await expect(projectMap).toHaveCount(1);
+  await expect(projectMap).toHaveAttribute("data-map-state", "ready", { timeout: 15_000 });
+  expect(Number(await projectMap.getAttribute("data-map-source-features"))).toBeGreaterThan(0);
+  await expect
+    .poll(async () => Number(await projectMap.getAttribute("data-map-rendered-project-features")), {
+      timeout: 15_000,
+    })
+    .toBeGreaterThan(0);
   await expect(page.locator("[data-project-map-list]")).toHaveCount(1);
   await expect(page.locator("table")).toHaveCount(0);
   expect(await page.locator("[data-project-map-list] ol > li").count()).toBeLessThanOrEqual(26);
+
+  const projectItems = page.locator("[data-project-map-list] ol > li").filter({
+    has: page.getByRole("button", { name: "Show on map" }),
+  });
+  const targetItem = projectItems.nth((await projectItems.count()) > 1 ? 1 : 0);
+  const targetHref = await targetItem.locator('a[href^="/projects/"]').first().getAttribute("href");
+  const targetProjectId = targetHref?.split("/").at(-1);
+  expect(targetProjectId).toBeTruthy();
+  await targetItem.getByRole("button", { name: "Show on map" }).click();
+  await expect(projectMap).toHaveAttribute("data-selected-project-id", targetProjectId!);
+  await expect(projectMap.getByRole("link", { name: "View project timeline" })).toBeVisible();
 });
 
 test("exports the authenticated filtered project set as CSV", async ({ page }) => {

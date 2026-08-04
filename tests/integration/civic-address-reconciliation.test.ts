@@ -7,7 +7,11 @@ import {
   ProjectCategory,
   ProjectMatchStatus,
   ProjectStage,
+  RunStatus,
 } from "../../src/generated/prisma/enums";
+import { ensureAddressReconciliationJob } from "../../src/jobs/address-reconciliation";
+import { permitImportConflictKey } from "../../src/jobs/permit-import-job";
+import { runProjectMatchingJob } from "../../src/jobs/project-intelligence-job";
 import { getDb } from "../../src/lib/db";
 import { matchPermitEvent } from "../../src/services/project-intelligence";
 
@@ -408,5 +412,217 @@ describe.skipIf(!hasTestDatabase)("civic address reconciliation", () => {
       category: ProjectCategory.NOT_RELEVANT,
       computedCategory: ProjectCategory.NOT_RELEVANT,
     });
+  });
+
+  it("automatically reunites the 5215 101A development and building permits", async () => {
+    const rawAddress = "5215 - 101A AVENUE NW";
+    const normalizedAddress = "5215 101A AVE NW";
+    const latitude = 53.541947022;
+    const longitude = -113.420761618;
+    const legacyAddress = await db.address.create({
+      data: {
+        rawSourceAddress: rawAddress,
+        normalizedStreetAddress: "101A AVE NW",
+        normalizedAddressKey: `legacy-5215-101a|${suffix}`,
+        unitNumber: "5215",
+        neighbourhoodId: fultonNeighbourhoodId,
+      },
+    });
+    addressIds.push(legacyAddress.id);
+    const legacyProject = await db.project.create({
+      data: {
+        projectKey: `legacy-5215-101a-project:${suffix}`,
+        addressId: legacyAddress.id,
+        neighbourhoodId: fultonNeighbourhoodId,
+        title: "101A AVE NW infill activity",
+        category: ProjectCategory.PROBABLE_NEW_DETACHED_INFILL,
+        computedCategory: ProjectCategory.PROBABLE_NEW_DETACHED_INFILL,
+        currentStage: ProjectStage.BUILDING_PERMIT,
+        computedStage: ProjectStage.BUILDING_PERMIT,
+        confidenceExplanation: { summary: "Legacy street-wide project", factors: [] },
+      },
+    });
+    projectIds.push(legacyProject.id);
+
+    const permits = await Promise.all([
+      db.permitEvent.create({
+        data: {
+          id: `address-repair-a-${suffix}`,
+          sourceProvider: provider,
+          sourceDataset: "development",
+          sourceRecordIdentifier: "659145196-002",
+          permitNumber: "659145196-002",
+          permitType: "Minor Development Permit",
+          status: "Approved",
+          workDescription: "To construct a Residential Use building as a Single Detached House.",
+          issueDate: new Date("2026-06-26T00:00:00.000Z"),
+          addressId: legacyAddress.id,
+          neighbourhoodId: fultonNeighbourhoodId,
+          addressNormalizationVersion: 1,
+          projectMatchStatus: ProjectMatchStatus.MATCHED,
+          rawSourcePayload: {
+            address: rawAddress,
+            latitude: String(latitude),
+            longitude: String(longitude),
+          },
+        },
+      }),
+      db.permitEvent.create({
+        data: {
+          id: `address-repair-b-${suffix}`,
+          sourceProvider: provider,
+          sourceDataset: "building",
+          sourceRecordIdentifier: "2-659134782",
+          permitType: "Single, Semi-detached & Rowhousing",
+          permitSubtype: "(01) Building - New",
+          status: "Issued",
+          workDescription: "To construct a Residential Use building as a Single Detached House.",
+          buildingType: "Single Detached House (110)",
+          issueDate: new Date("2026-07-08T00:00:00.000Z"),
+          addressId: legacyAddress.id,
+          neighbourhoodId: fultonNeighbourhoodId,
+          addressNormalizationVersion: 1,
+          projectMatchStatus: ProjectMatchStatus.MATCHED,
+          rawSourcePayload: { address: rawAddress },
+        },
+      }),
+      db.permitEvent.create({
+        data: {
+          id: `address-repair-c-${suffix}`,
+          sourceProvider: provider,
+          sourceDataset: "building",
+          sourceRecordIdentifier: "4-659134782",
+          permitType: "Home Improvement",
+          status: "Issued",
+          workDescription: "To construct an Accessory building (detached Garage).",
+          buildingType: "Single Detached House (110)",
+          issueDate: new Date("2026-07-13T00:00:00.000Z"),
+          addressId: legacyAddress.id,
+          neighbourhoodId: fultonNeighbourhoodId,
+          addressNormalizationVersion: 1,
+          projectMatchStatus: ProjectMatchStatus.MATCHED,
+          rawSourcePayload: { address: rawAddress },
+        },
+      }),
+    ]);
+    await db.projectEvent.createMany({
+      data: permits.map((permit) => ({
+        projectId: legacyProject.id,
+        permitEventId: permit.id,
+        eventDate: permit.issueDate!,
+        matchReason: { strategy: "normalized-site-address", automated: true },
+      })),
+    });
+
+    const activePipeline = await db.jobRun.findFirst({
+      where: { conflictKey: permitImportConflictKey },
+      select: { id: true, conflictKey: true },
+    });
+    if (activePipeline) {
+      await db.jobRun.update({
+        where: { id: activePipeline.id },
+        data: { conflictKey: null },
+      });
+    }
+
+    let repairJobId: string | null = null;
+    try {
+      const queued = await ensureAddressReconciliationJob(db);
+      expect(queued.status).toBe("enqueued");
+      if (queued.status !== "enqueued") throw new Error("Address repair was not enqueued.");
+      repairJobId = queued.jobId;
+      const leaseToken = `address-repair-worker:${suffix}`;
+      const now = new Date();
+      await db.jobRun.update({
+        where: { id: queued.jobId },
+        data: {
+          status: RunStatus.RUNNING,
+          lockKey: leaseToken,
+          startedAt: now,
+          heartbeatAt: now,
+          lockExpiresAt: new Date(now.getTime() + 60_000),
+        },
+      });
+
+      const result = await runProjectMatchingJob(db, undefined, {
+        jobRunId: queued.jobId,
+        leaseToken,
+      });
+      expect(result.failed).toBe(0);
+      expect(result.successful).toBeGreaterThanOrEqual(3);
+
+      const repaired = await db.permitEvent.findMany({
+        where: { id: { in: permits.map(({ id }) => id) } },
+        select: {
+          sourceRecordIdentifier: true,
+          addressNormalizationVersion: true,
+          projectMatchStatus: true,
+          address: {
+            select: {
+              id: true,
+              normalizedStreetAddress: true,
+              unitNumber: true,
+              latitude: true,
+              longitude: true,
+            },
+          },
+          projectEvent: { select: { projectId: true } },
+        },
+        orderBy: { sourceRecordIdentifier: "asc" },
+      });
+      expect(repaired).toHaveLength(3);
+      expect(new Set(repaired.map(({ projectEvent }) => projectEvent?.projectId)).size).toBe(1);
+      expect(new Set(repaired.map(({ address }) => address.id)).size).toBe(1);
+      expect(
+        repaired.every(
+          ({ address, addressNormalizationVersion, projectMatchStatus }) =>
+            address.normalizedStreetAddress === normalizedAddress &&
+            address.unitNumber === null &&
+            Number(address.latitude) === latitude &&
+            Number(address.longitude) === longitude &&
+            addressNormalizationVersion === 2 &&
+            projectMatchStatus === ProjectMatchStatus.MATCHED,
+        ),
+      ).toBe(true);
+
+      const correctedProjectId = repaired[0]?.projectEvent?.projectId;
+      if (!correctedProjectId) throw new Error("Corrected civic project was not created.");
+      projectIds.push(correctedProjectId);
+      addressIds.push(repaired[0]!.address.id);
+      await expect(
+        db.project.findUniqueOrThrow({
+          where: { id: correctedProjectId },
+          select: {
+            title: true,
+            address: { select: { latitude: true, longitude: true } },
+          },
+        }),
+      ).resolves.toMatchObject({
+        title: `${normalizedAddress} infill activity`,
+        address: { latitude: expect.anything(), longitude: expect.anything() },
+      });
+      const correctedProject = await db.project.findUniqueOrThrow({
+        where: { id: correctedProjectId },
+        select: { address: { select: { latitude: true, longitude: true } } },
+      });
+      expect(Number(correctedProject.address.latitude)).toBe(latitude);
+      expect(Number(correctedProject.address.longitude)).toBe(longitude);
+      await expect(
+        db.project.findUniqueOrThrow({ where: { id: legacyProject.id } }),
+      ).resolves.toMatchObject({
+        category: ProjectCategory.NOT_RELEVANT,
+        computedCategory: ProjectCategory.NOT_RELEVANT,
+      });
+    } finally {
+      if (repairJobId) {
+        await db.jobRun.deleteMany({ where: { id: repairJobId } });
+      }
+      if (activePipeline?.conflictKey) {
+        await db.jobRun.update({
+          where: { id: activePipeline.id },
+          data: { conflictKey: activePipeline.conflictKey },
+        });
+      }
+    }
   });
 });

@@ -170,14 +170,31 @@ describe("project URL filters", () => {
             canonicalWhere,
             {
               address: {
-                latitude: { not: null },
-                longitude: { not: null },
+                latitude: { not: null, gte: 53.2, lte: 53.9 },
+                longitude: { not: null, gte: -114, lte: -113 },
               },
             },
           ],
         },
       }),
     );
+    expect(count).toHaveBeenLastCalledWith({
+      where: {
+        AND: [
+          canonicalWhere,
+          {
+            OR: [
+              { address: { latitude: null } },
+              { address: { longitude: null } },
+              { address: { latitude: { lt: 53.2 } } },
+              { address: { latitude: { gt: 53.9 } } },
+              { address: { longitude: { lt: -114 } } },
+              { address: { longitude: { gt: -113 } } },
+            ],
+          },
+        ],
+      },
+    });
   });
 
   it("sorts the default project view by the latest qualifying infill milestone", async () => {

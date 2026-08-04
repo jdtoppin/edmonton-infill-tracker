@@ -6,13 +6,13 @@ Edmonton Infill Tracker renders geographic data with MapLibre GL JS. By default 
 https://vector.openstreetmap.org/shortbread_v1/{z}/{x}/{y}.mvt
 ```
 
-The app applies its own restrained, flat style to roads, water, land, and buildings. It intentionally omits OpenStreetMap place and boundary label layers so legacy aggregate labels do not compete with the City's current neighbourhood names. The source needs no API key or account. The map must keep the visible `© OpenStreetMap contributors` attribution and follow the [OpenStreetMap vector tile usage policy](https://operations.osmfoundation.org/policies/vector/). The application requests tiles for ordinary interactive viewing only; it must not prefetch, bulk-download, scrape, or offer offline tile packs from this service.
+The app applies its own restrained, flat style to roads, water, land, buildings, and street names. Text uses OpenStreetMap's matching Shortbread glyph endpoint at `https://vector.openstreetmap.org/styles/shortbread/fonts/{fontstack}/{range}.pbf`. It intentionally omits OpenStreetMap place and boundary label layers so legacy aggregate labels do not compete with the City's current neighbourhood names. These sources need no API key or account. The map must keep the visible `© OpenStreetMap contributors` attribution and follow the [OpenStreetMap vector tile usage policy](https://operations.osmfoundation.org/policies/vector/). The application requests tiles and glyphs for ordinary interactive viewing only; it must not prefetch, bulk-download, scrape, or offer offline tile packs from this service.
 
 Neighbourhood labels are loaded from the City of Edmonton's current centroid dataset and validated within strict row-count, field, response-size, and Edmonton-coordinate limits before display. Aggregate `Greater …` names are excluded. Dashboard bubbles, project details, filters, and lists use the same City neighbourhood identifiers and current names.
 
 ## Privacy boundary
 
-The basemap and current City neighbourhood label overlay are internet-backed even when the application itself runs privately on the Mac mini behind Tailscale. Each viewer's browser contacts the configured tile/style provider and City open-data endpoint directly.
+The basemap, its glyphs, and the current City neighbourhood label overlay are internet-backed even when the application itself runs privately on the Mac mini behind Tailscale. Each viewer's browser contacts the configured tile/style provider and City open-data endpoint directly.
 
 The provider can see ordinary web request metadata, such as the viewer's public IP address, browser user agent, and referrer. Tile coordinates also reveal the map area and zoom level being viewed. The application does not append permit records, project markers, street addresses, user identities, session cookies, or application credentials to tile requests.
 

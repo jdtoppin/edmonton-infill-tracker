@@ -5,17 +5,15 @@ import Link from "next/link";
 import { LocateFixed, MapPinned, MapPinOff, TriangleAlert } from "lucide-react";
 import type { FeatureCollection, Point } from "geojson";
 import type {
+  ErrorEvent as MapLibreErrorEvent,
   GeoJSONSource,
   Map as MapLibreMap,
   MapLayerMouseEvent,
+  MapSourceDataEvent,
   Popup as MapLibrePopup,
 } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
-import {
-  EDMONTON_CENTER,
-  EDMONTON_COORDINATE_LIMITS,
-  resolveMapStyle,
-} from "@/components/maps/map-style";
+import { EDMONTON_CENTER, resolveMapStyle } from "@/components/maps/map-style";
 import {
   addCurrentNeighbourhoodLabelOverlay,
   loadCurrentEdmontonNeighbourhoods,
@@ -23,6 +21,12 @@ import {
 } from "@/components/maps/neighbourhood-labels";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
+import {
+  hasUsableEdmontonCoordinates,
+  PROJECT_CLUSTER_MAX_ZOOM,
+  projectFitMaxZoom,
+  shouldClusterProjectMarkers,
+} from "@/src/domain/edmonton-map";
 import { cn } from "@/lib/utils";
 
 const MAP_SOURCE_ID = "infill-projects";
@@ -58,21 +62,13 @@ type ProjectMapProps = {
 };
 
 type MapStatus = "loading" | "ready" | "coordinates-missing" | "unsupported" | "error";
+type BasemapStatus = "loading" | "ready" | "degraded";
 
 type MappableProject = ProjectMapMarker & { latitude: number; longitude: number };
 type ProjectFeatureProperties = { projectId: string; confidence: number };
 
 function isMappable(project: ProjectMapMarker): project is MappableProject {
-  return (
-    typeof project.latitude === "number" &&
-    Number.isFinite(project.latitude) &&
-    project.latitude >= EDMONTON_COORDINATE_LIMITS.south &&
-    project.latitude <= EDMONTON_COORDINATE_LIMITS.north &&
-    typeof project.longitude === "number" &&
-    Number.isFinite(project.longitude) &&
-    project.longitude >= EDMONTON_COORDINATE_LIMITS.west &&
-    project.longitude <= EDMONTON_COORDINATE_LIMITS.east
-  );
+  return hasUsableEdmontonCoordinates(project);
 }
 
 function projectHref(projectId: string): string {
@@ -172,6 +168,8 @@ export function ProjectMap({
   className,
 }: ProjectMapProps) {
   const mappableProjects = useMemo(() => markers.filter(isMappable), [markers]);
+  const clusterProjects = shouldClusterProjectMarkers(mappableProjects.length);
+  const unusableCoordinateCount = markers.length - mappableProjects.length;
   const projectsById = useMemo(
     () => new Map(mappableProjects.map((project) => [project.id, project])),
     [mappableProjects],
@@ -203,6 +201,7 @@ export function ProjectMap({
   const [selectedId, setSelectedId] = useState<string | null>(initialSelection);
   const [listWindow, setListWindow] = useState({ key: markerSetKey, count: safeBatchSize });
   const [runtimeStatus, setRuntimeStatus] = useState<MapStatus>("loading");
+  const [basemapStatus, setBasemapStatus] = useState<BasemapStatus>("loading");
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<MapLibreMap | null>(null);
   const popupRef = useRef<MapLibrePopup | null>(null);
@@ -226,6 +225,9 @@ export function ProjectMap({
       const project = projectsById.get(projectId);
       const map = mapRef.current;
       const popup = popupRef.current;
+
+      const mapHost = map?.getContainer().closest<HTMLElement>("[data-project-map]");
+      if (mapHost) mapHost.dataset.selectedProjectId = projectId;
 
       if (project && map?.getLayer(PROJECT_LAYER_ID)) {
         map.setPaintProperty(PROJECT_LAYER_ID, "circle-color", [
@@ -286,6 +288,7 @@ export function ProjectMap({
         const maplibre = await import("maplibre-gl");
         if (cancelled) return;
         setRuntimeStatus("loading");
+        setBasemapStatus("loading");
         if (!document.createElement("canvas").getContext("webgl2")) {
           setRuntimeStatus("unsupported");
           return;
@@ -307,16 +310,45 @@ export function ProjectMap({
         popupRef.current = popup;
         mapInstance.addControl(new maplibre.NavigationControl({ showCompass: false }), "top-right");
 
-        let loaded = false;
+        let layersInstalled = false;
+        let projectSourceReady = false;
+        let basemapFailed = false;
+
+        const mapHost = mapContainer.closest<HTMLElement>("[data-project-map]");
+        const syncFeatureDiagnostics = () => {
+          if (cancelled || !layersInstalled || !mapHost) return;
+          const projectIds = new Set(
+            mapInstance
+              .queryRenderedFeatures({ layers: [PROJECT_LAYER_ID] })
+              .map((feature) => feature.properties?.projectId)
+              .filter((projectId): projectId is string => typeof projectId === "string"),
+          );
+          const clusterIds = new Set(
+            mapInstance
+              .queryRenderedFeatures({ layers: [CLUSTER_LAYER_ID] })
+              .map((feature) => feature.properties?.cluster_id)
+              .filter((clusterId) => clusterId !== null && clusterId !== undefined),
+          );
+          mapHost.dataset.mapRenderedProjectFeatures = String(projectIds.size);
+          mapHost.dataset.mapRenderedClusters = String(clusterIds.size);
+        };
+        const markProjectSourceReady = () => {
+          if (cancelled || projectSourceReady || !layersInstalled) return;
+          if (!mapInstance.isSourceLoaded(MAP_SOURCE_ID)) return;
+          projectSourceReady = true;
+          setRuntimeStatus("ready");
+          syncFeatureDiagnostics();
+          window.requestAnimationFrame(() => window.requestAnimationFrame(syncFeatureDiagnostics));
+        };
         const handleStyleLoad = () => {
-          if (cancelled || loaded) return;
+          if (cancelled || layersInstalled) return;
           try {
             suppressAggregateBasemapLabels(mapInstance);
             mapInstance.addSource(MAP_SOURCE_ID, {
               type: "geojson",
               data: featureCollection,
-              cluster: true,
-              clusterMaxZoom: 14,
+              cluster: clusterProjects,
+              clusterMaxZoom: PROJECT_CLUSTER_MAX_ZOOM,
               clusterRadius: 48,
             });
             mapInstance.addLayer({
@@ -341,17 +373,6 @@ export function ProjectMap({
               },
             });
             mapInstance.addLayer({
-              id: CLUSTER_COUNT_LAYER_ID,
-              type: "symbol",
-              source: MAP_SOURCE_ID,
-              filter: ["has", "point_count"],
-              layout: {
-                "text-field": ["get", "point_count_abbreviated"],
-                "text-size": 12,
-              },
-              paint: { "text-color": "#ffffff" },
-            });
-            mapInstance.addLayer({
               id: PROJECT_LAYER_ID,
               type: "circle",
               source: MAP_SOURCE_ID,
@@ -368,17 +389,38 @@ export function ProjectMap({
                 "circle-stroke-color": "#ffffff",
               },
             });
-            mapInstance.addLayer({
-              id: PROJECT_LABEL_LAYER_ID,
-              type: "symbol",
-              source: MAP_SOURCE_ID,
-              filter: ["!", ["has", "point_count"]],
-              layout: {
-                "text-field": ["to-string", ["get", "confidence"]],
-                "text-size": 10,
-              },
-              paint: { "text-color": "#ffffff" },
-            });
+
+            // Circle layers are the map's essential information. Text is useful
+            // enhancement, but a glyph/provider failure must never hide points.
+            try {
+              mapInstance.addLayer({
+                id: CLUSTER_COUNT_LAYER_ID,
+                type: "symbol",
+                source: MAP_SOURCE_ID,
+                filter: ["has", "point_count"],
+                layout: {
+                  "text-field": ["get", "point_count_abbreviated"],
+                  "text-font": ["noto_sans_bold"],
+                  "text-size": 12,
+                },
+                paint: { "text-color": "#ffffff" },
+              });
+              mapInstance.addLayer({
+                id: PROJECT_LABEL_LAYER_ID,
+                type: "symbol",
+                source: MAP_SOURCE_ID,
+                filter: ["!", ["has", "point_count"]],
+                layout: {
+                  "text-field": ["to-string", ["get", "confidence"]],
+                  "text-font": ["noto_sans_bold"],
+                  "text-size": 10,
+                },
+                paint: { "text-color": "#ffffff" },
+              });
+              if (mapHost) mapHost.dataset.mapPointLabels = "ready";
+            } catch {
+              if (mapHost) mapHost.dataset.mapPointLabels = "unavailable";
+            }
 
             const bounds = new maplibre.LngLatBounds();
             for (const project of mappableProjects) {
@@ -387,14 +429,18 @@ export function ProjectMap({
             if (mappableProjects.length === 1) {
               mapInstance.jumpTo({
                 center: [mappableProjects[0].longitude, mappableProjects[0].latitude],
-                zoom: 13,
+                zoom: 15,
               });
             } else if (!bounds.isEmpty()) {
-              mapInstance.fitBounds(bounds, { padding: 54, maxZoom: 14, duration: 0 });
+              mapInstance.fitBounds(bounds, {
+                padding: 54,
+                maxZoom: projectFitMaxZoom(mappableProjects.length),
+                duration: 0,
+              });
             }
 
-            loaded = true;
-            setRuntimeStatus("ready");
+            layersInstalled = true;
+            window.requestAnimationFrame(markProjectSourceReady);
             void loadCurrentEdmontonNeighbourhoods()
               .then((labels) => {
                 if (cancelled) return;
@@ -415,8 +461,26 @@ export function ProjectMap({
             if (!cancelled) setRuntimeStatus("error");
           }
         };
-        const handleError = () => {
-          if (!loaded && !cancelled) setRuntimeStatus("error");
+        const handleSourceData = (event: MapSourceDataEvent) => {
+          if (event.sourceId === MAP_SOURCE_ID && event.isSourceLoaded) {
+            markProjectSourceReady();
+          }
+        };
+        const handleIdle = () => {
+          markProjectSourceReady();
+          syncFeatureDiagnostics();
+          if (!basemapFailed) setBasemapStatus("ready");
+        };
+        const handleError = (event: MapLibreErrorEvent) => {
+          if (cancelled) return;
+          const sourceId = (event as MapLibreErrorEvent & { sourceId?: string }).sourceId;
+          if (!layersInstalled || (sourceId === MAP_SOURCE_ID && !projectSourceReady)) {
+            setRuntimeStatus("error");
+            return;
+          }
+          basemapFailed = true;
+          setBasemapStatus("degraded");
+          markProjectSourceReady();
         };
         const handleClusterClick = async (event: MapLayerMouseEvent) => {
           const feature = mapInstance.queryRenderedFeatures(event.point, {
@@ -449,6 +513,9 @@ export function ProjectMap({
         };
 
         mapInstance.on("style.load", handleStyleLoad);
+        mapInstance.on("sourcedata", handleSourceData);
+        mapInstance.on("idle", handleIdle);
+        mapInstance.on("moveend", syncFeatureDiagnostics);
         mapInstance.on("error", handleError);
         mapInstance.on("click", CLUSTER_LAYER_ID, handleClusterClick);
         mapInstance.on("click", PROJECT_LAYER_ID, handleProjectClick);
@@ -473,6 +540,7 @@ export function ProjectMap({
       mapRef.current = null;
     };
   }, [
+    clusterProjects,
     featureCollection,
     initialSelectedId,
     initialSelection,
@@ -500,6 +568,10 @@ export function ProjectMap({
       )}
       data-project-map
       data-map-state={status}
+      data-basemap-state={basemapStatus}
+      data-map-source-features={mappableProjects.length}
+      data-map-unusable-coordinate-count={unusableCoordinateCount}
+      data-selected-project-id={effectiveSelectedId ?? undefined}
     >
       <section className="relative min-h-[430px] bg-[#e8ebe6] lg:min-h-[500px]">
         <div className="absolute inset-0">
@@ -522,6 +594,16 @@ export function ProjectMap({
               <div className="mx-auto mb-3 size-8 animate-pulse rounded-lg bg-[var(--teal)]" />
               <p className="m-0 text-xs font-semibold text-[var(--muted)]">Loading project map…</p>
             </div>
+          </div>
+        )}
+
+        {status === "ready" && basemapStatus === "degraded" && (
+          <div
+            className="pointer-events-none absolute top-3 left-3 z-20 max-w-[min(320px,calc(100%-72px))] rounded-lg border border-[#d8b887] bg-[#fff8eb]/95 px-3 py-2 text-[11px] leading-4 text-[#714c20] shadow-sm backdrop-blur-sm"
+            role="status"
+          >
+            Street-map detail is temporarily unavailable. Project locations and the project list
+            remain usable.
           </div>
         )}
 

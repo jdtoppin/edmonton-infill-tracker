@@ -13,6 +13,10 @@ import {
   recoverExpiredJobs,
   type ClaimedJob,
 } from "./job-lease";
+import {
+  ADDRESS_RECONCILIATION_MAX_ENQUEUES_PER_PROCESS,
+  ensureAddressReconciliationJob,
+} from "./address-reconciliation";
 import { jobDate, parsePermitImportJobMetadata } from "./permit-import-job";
 import { completeProjectPipelineStage } from "./project-pipeline";
 import {
@@ -27,6 +31,8 @@ const heartbeatMs = Math.max(1_000, Math.min(30_000, Math.floor(jobLeaseMs / 3))
 let stopping = false;
 let wakeWorker: (() => void) | undefined;
 let activeJobController: AbortController | undefined;
+let addressReconciliationMonitoringStopped = false;
+let addressReconciliationEnqueues = 0;
 
 if (
   !Number.isFinite(pollMs) ||
@@ -56,6 +62,26 @@ async function claimNextJob() {
   const recovered = await recoverExpiredJobs(db);
   if (recovered.jobs > 0) {
     log("warn", "worker.jobs-recovered", recovered);
+  }
+  if (!addressReconciliationMonitoringStopped) {
+    const reconciliation = await ensureAddressReconciliationJob(db, {
+      allowEnqueue: addressReconciliationEnqueues < ADDRESS_RECONCILIATION_MAX_ENQUEUES_PER_PROCESS,
+    });
+    if (reconciliation.status === "not-needed") {
+      addressReconciliationMonitoringStopped = true;
+    }
+    if (reconciliation.status === "enqueued") {
+      addressReconciliationEnqueues += 1;
+      log("info", "worker.address-reconciliation-enqueued", {
+        jobId: reconciliation.jobId,
+        attempt: addressReconciliationEnqueues,
+      });
+    } else if (reconciliation.status === "backlog-remains") {
+      addressReconciliationMonitoringStopped = true;
+      log("error", "worker.address-reconciliation-incomplete", {
+        attempts: addressReconciliationEnqueues,
+      });
+    }
   }
   return claimQueuedJob(db, {
     leaseMs: jobLeaseMs,

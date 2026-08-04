@@ -22,6 +22,7 @@ import {
   type OccupancyTimingEstimate,
 } from "../../domain/occupancy-estimate";
 import { buildProjectMilestones } from "../../domain/project-timeline";
+import { EDMONTON_COORDINATE_LIMITS } from "../../domain/edmonton-map";
 import { log } from "../../lib/logger";
 import { dashboardRange, type DashboardPeriod, type DashboardRange } from "./dashboard-periods";
 import {
@@ -562,8 +563,16 @@ export async function listProjectMarkers(
       baseWhere,
       {
         address: {
-          latitude: { not: null },
-          longitude: { not: null },
+          latitude: {
+            not: null,
+            gte: EDMONTON_COORDINATE_LIMITS.south,
+            lte: EDMONTON_COORDINATE_LIMITS.north,
+          },
+          longitude: {
+            not: null,
+            gte: EDMONTON_COORDINATE_LIMITS.west,
+            lte: EDMONTON_COORDINATE_LIMITS.east,
+          },
         },
       },
     ],
@@ -580,7 +589,14 @@ export async function listProjectMarkers(
         AND: [
           baseWhere,
           {
-            OR: [{ address: { latitude: null } }, { address: { longitude: null } }],
+            OR: [
+              { address: { latitude: null } },
+              { address: { longitude: null } },
+              { address: { latitude: { lt: EDMONTON_COORDINATE_LIMITS.south } } },
+              { address: { latitude: { gt: EDMONTON_COORDINATE_LIMITS.north } } },
+              { address: { longitude: { lt: EDMONTON_COORDINATE_LIMITS.west } } },
+              { address: { longitude: { gt: EDMONTON_COORDINATE_LIMITS.east } } },
+            ],
           },
         ],
       },

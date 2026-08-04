@@ -1,21 +1,16 @@
 import type { MapOptions } from "maplibre-gl";
 
+export { EDMONTON_COORDINATE_LIMITS } from "../../src/domain/edmonton-map";
+
 export const EDMONTON_CENTER: [longitude: number, latitude: number] = [-113.4938, 53.5461];
 
-// A deliberately generous sanity envelope for City-sourced coordinates. The map
-// fits the actual result points, so this is validation rather than a viewport.
-export const EDMONTON_COORDINATE_LIMITS = {
-  west: -114,
-  east: -113,
-  north: 53.9,
-  south: 53.2,
-} as const;
-
-// Keep the old default recognizable so existing local .env files receive the
-// updated label-free presentation without a manual configuration migration.
+// Keep the old default recognizable so existing local .env files receive this
+// updated presentation without a manual configuration migration.
 export const LEGACY_DEFAULT_MAP_TILE_URL = "https://tile.openstreetmap.org/{z}/{x}/{y}.png";
 export const DEFAULT_MAP_TILE_URL =
   "https://vector.openstreetmap.org/shortbread_v1/{z}/{x}/{y}.mvt";
+export const DEFAULT_MAP_GLYPHS_URL =
+  "https://vector.openstreetmap.org/styles/shortbread/fonts/{fontstack}/{range}.pbf";
 export const DEFAULT_MAP_RASTER_PAINT = {
   "raster-saturation": -0.45,
   "raster-contrast": -0.08,
@@ -45,6 +40,7 @@ export function resolveMapStyle({
   if (usesDefaultTiles) {
     return {
       version: 8,
+      glyphs: DEFAULT_MAP_GLYPHS_URL,
       sources: {
         "openstreetmap-shortbread": {
           type: "vector",
@@ -122,19 +118,62 @@ export function resolveMapStyle({
           },
         },
         {
+          id: "street-casings",
+          type: "line",
+          source: "openstreetmap-shortbread",
+          "source-layer": "streets",
+          filter: [
+            "!",
+            ["in", ["get", "kind"], ["literal", ["rail", "light_rail", "tram", "funicular"]]],
+          ],
+          paint: {
+            "line-color": "#bdc8c3",
+            "line-opacity": ["interpolate", ["linear"], ["zoom"], 5, 0.62, 10, 0.82, 14, 1],
+            "line-width": ["interpolate", ["linear"], ["zoom"], 5, 0.7, 10, 1.9, 14, 4.8],
+          },
+        },
+        {
           id: "local-streets",
           type: "line",
           source: "openstreetmap-shortbread",
           "source-layer": "streets",
+          filter: [
+            "!",
+            ["in", ["get", "kind"], ["literal", ["rail", "light_rail", "tram", "funicular"]]],
+          ],
           paint: {
             "line-color": [
               "case",
               ["in", ["get", "kind"], ["literal", ["motorway", "trunk", "primary"]]],
-              "#c7c9c1",
+              "#d5b87a",
+              ["in", ["get", "kind"], ["literal", ["secondary", "tertiary"]]],
+              "#f1f3ee",
               "#ffffff",
             ],
-            "line-opacity": ["interpolate", ["linear"], ["zoom"], 5, 0.4, 10, 0.72, 14, 0.98],
-            "line-width": ["interpolate", ["linear"], ["zoom"], 5, 0.25, 10, 0.8, 14, 2.2],
+            "line-opacity": ["interpolate", ["linear"], ["zoom"], 5, 0.82, 10, 0.96, 14, 1],
+            "line-width": ["interpolate", ["linear"], ["zoom"], 5, 0.35, 10, 1.15, 14, 3.5],
+          },
+        },
+        {
+          id: "street-labels",
+          type: "symbol",
+          source: "openstreetmap-shortbread",
+          "source-layer": "street_labels",
+          minzoom: 11,
+          filter: ["has", "name"],
+          layout: {
+            "symbol-placement": "line",
+            "text-field": ["get", "name"],
+            "text-font": ["noto_sans_regular"],
+            "text-size": ["interpolate", ["linear"], ["zoom"], 11, 10, 15, 13],
+            "text-max-angle": 35,
+            "text-padding": 2,
+            "text-keep-upright": true,
+          },
+          paint: {
+            "text-color": "#536360",
+            "text-halo-color": "rgba(248, 250, 246, 0.96)",
+            "text-halo-width": 1.4,
           },
         },
       ],
