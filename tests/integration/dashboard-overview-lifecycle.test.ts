@@ -411,4 +411,71 @@ describe.skipIf(!hasTestDatabase)("dashboard lifecycle overview", () => {
     );
     expect(constructionDates).toEqual([...constructionDates].sort().reverse());
   });
+
+  it("includes mapped projects outside the ten highest-activity neighbourhoods", async () => {
+    const coveragePrefix = `dashboard-map-coverage:${suffix}`;
+    try {
+      const coverageNeighbourhoods = await db.neighbourhood.createManyAndReturn({
+        data: Array.from({ length: 12 }, (_, index) => ({
+          cityNeighbourhoodId: `${coveragePrefix}:${index}`,
+          name: `Dashboard Map Coverage ${String(index).padStart(2, "0")}`,
+        })),
+        select: { id: true, cityNeighbourhoodId: true },
+      });
+      const coverageAddresses = await Promise.all(
+        coverageNeighbourhoods.map((area, index) =>
+          db.address.create({
+            data: {
+              rawSourceAddress: `${91000 + index} COVERAGE AVENUE NW`,
+              normalizedStreetAddress: `${91000 + index} COVERAGE AVE NW`,
+              normalizedAddressKey: `${coveragePrefix}:address:${index}`,
+              latitude: 53.5 + index / 10_000,
+              longitude: -113.5 - index / 10_000,
+              neighbourhoodId: area.id,
+            },
+            select: { id: true, neighbourhoodId: true },
+          }),
+        ),
+      );
+      const coverageProjects = await Promise.all(
+        coverageAddresses.map((address, index) =>
+          db.project.create({
+            data: {
+              projectKey: `${coveragePrefix}:project:${index}`,
+              addressId: address.id,
+              neighbourhoodId: address.neighbourhoodId!,
+              title: `Dashboard map coverage project ${index}`,
+              category: ProjectCategory.PROBABLE_NEW_DETACHED_INFILL,
+              computedCategory: ProjectCategory.PROBABLE_NEW_DETACHED_INFILL,
+              currentStage: ProjectStage.BUILDING_PERMIT,
+              computedStage: ProjectStage.BUILDING_PERMIT,
+              latestInfillActivityDate: new Date("2026-08-01T00:00:00.000Z"),
+              infillConfidence: 85,
+              infillAreaClassification: InfillAreaClassification.CORE,
+              confidenceExplanation: { summary: "Map coverage fixture", factors: [] },
+            },
+            select: { id: true, neighbourhoodId: true },
+          }),
+        ),
+      );
+      const overview = await getDashboardOverview(db, now, 30);
+      const rankByNeighbourhoodId = new Map(
+        overview.neighbourhoodBreakdown.map((area, index) => [area.id, index]),
+      );
+      const outsideLeadingTen = coverageProjects.find(
+        (project) => (rankByNeighbourhoodId.get(project.neighbourhoodId) ?? -1) >= 10,
+      );
+
+      expect(outsideLeadingTen).toBeDefined();
+      expect(overview.mapProjects.map(({ id }) => id)).toContain(outsideLeadingTen!.id);
+    } finally {
+      await db.project.deleteMany({ where: { projectKey: { startsWith: coveragePrefix } } });
+      await db.address.deleteMany({
+        where: { normalizedAddressKey: { startsWith: `${coveragePrefix}:address:` } },
+      });
+      await db.neighbourhood.deleteMany({
+        where: { cityNeighbourhoodId: { startsWith: coveragePrefix } },
+      });
+    }
+  });
 });

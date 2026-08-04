@@ -152,18 +152,15 @@ export function NeighbourhoodActivityMap({
     range.period === "all"
       ? "all City-dated history"
       : `the last ${range.label.toLocaleLowerCase("en-CA")}`;
-  const visibleAreas = useMemo(() => areas.slice(0, 10), [areas]);
-  const mappedAreas = useMemo(() => visibleAreas.filter(isMappable), [visibleAreas]);
-  const visibleAreaIds = useMemo(
-    () => new Set(visibleAreas.map((area) => area.id)),
-    [visibleAreas],
-  );
+  const activeAreas = useMemo(() => [...areas], [areas]);
+  const mappedAreas = useMemo(() => activeAreas.filter(isMappable), [activeAreas]);
+  const activeAreaIds = useMemo(() => new Set(activeAreas.map((area) => area.id)), [activeAreas]);
   const mappedProjects = useMemo(
     () =>
       projects
         .filter(isMappableProject)
-        .filter((project) => visibleAreaIds.has(project.neighbourhoodId)),
-    [projects, visibleAreaIds],
+        .filter((project) => activeAreaIds.has(project.neighbourhoodId)),
+    [projects, activeAreaIds],
   );
   const projectsById = useMemo(
     () => new Map(mappedProjects.map((project) => [project.id, project])),
@@ -184,20 +181,20 @@ export function NeighbourhoodActivityMap({
     [mappedProjects],
   );
   const [selectedId, setSelectedId] = useState<string | null>(
-    mappedAreas[0]?.id ?? visibleAreas[0]?.id ?? null,
+    mappedAreas[0]?.id ?? activeAreas[0]?.id ?? null,
   );
   const [mapState, setMapState] = useState<MapState>(mappedAreas.length > 0 ? "loading" : "empty");
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<MapLibreMap | null>(null);
   const markerElementsRef = useRef(new Map<string, HTMLButtonElement>());
   const effectiveSelectedId =
-    selectedId && visibleAreas.some((area) => area.id === selectedId)
+    selectedId && activeAreas.some((area) => area.id === selectedId)
       ? selectedId
-      : (mappedAreas[0]?.id ?? visibleAreas[0]?.id ?? null);
+      : (mappedAreas[0]?.id ?? activeAreas[0]?.id ?? null);
   const selected =
-    visibleAreas.find((area) => area.id === effectiveSelectedId) ?? visibleAreas[0] ?? null;
+    activeAreas.find((area) => area.id === effectiveSelectedId) ?? activeAreas[0] ?? null;
   const selectedIdRef = useRef<string | null>(null);
-  const maximumCount = Math.max(1, ...visibleAreas.map((area) => area.count));
+  const maximumCount = Math.max(1, ...activeAreas.map((area) => area.count));
 
   const selectArea = useCallback(
     (areaId: string, moveMap: boolean) => {
@@ -567,20 +564,25 @@ export function NeighbourhoodActivityMap({
       : null;
 
   return (
-    <Card className="mt-4 overflow-hidden" data-overview-map data-map-state={mapState}>
+    <Card
+      className="mt-4 overflow-hidden"
+      data-overview-map
+      data-map-state={mapState}
+      data-active-area-count={activeAreas.length}
+    >
       <div className="flex flex-wrap items-start justify-between gap-4 border-b border-[var(--border-soft)] px-5 py-4">
         <div>
           <div className="eyebrow">{range.windowLabel} · Core infill area</div>
           <h2 className="m-0 text-base font-bold text-[var(--spruce)]">Project activity map</h2>
           <p className="mt-1 mb-0 text-xs leading-5 text-[var(--muted)]">
-            Up to ten leading neighbourhoods inside Anthony Henday and between Yellowhead Trail and
-            Whitemud Drive are shown. Select a count bubble or zoom in to reveal individual projects
-            at their recorded City coordinates. Neighbourhood labels come from the City&apos;s
-            current centroid dataset; aggregate Greater-area labels are omitted.
+            All active neighbourhoods inside Anthony Henday and between Yellowhead Trail and
+            Whitemud Drive are shown for this period. Select a count bubble or zoom in to reveal
+            individual projects at their recorded City coordinates. Neighbourhood labels come from
+            the City&apos;s current centroid dataset; aggregate Greater-area labels are omitted.
           </p>
         </div>
         <div className="inline-flex items-center gap-2 rounded-full bg-[var(--teal-soft)] px-3 py-1.5 text-[11px] font-semibold text-[var(--teal)]">
-          <MapPinned size={14} aria-hidden="true" /> {mappedAreas.length} leading mapped areas
+          <MapPinned size={14} aria-hidden="true" /> {mappedAreas.length} mapped active areas
         </div>
       </div>
 
@@ -653,11 +655,14 @@ export function NeighbourhoodActivityMap({
             <p className="text-sm text-[var(--muted)]">No neighbourhood activity is available.</p>
           )}
 
-          {visibleAreas.length > 1 && (
+          {activeAreas.length > 1 && (
             <div className="mt-5 border-t border-[var(--border-soft)] pt-4">
-              <div className="eyebrow">Leading areas</div>
-              <div className="mt-2 grid gap-1">
-                {visibleAreas.slice(0, 6).map((area) => (
+              <div className="eyebrow">Active areas · {activeAreas.length}</div>
+              <div
+                className="mt-2 grid max-h-64 gap-1 overflow-y-auto pr-1"
+                data-overview-map-area-list
+              >
+                {activeAreas.map((area) => (
                   <button
                     key={area.id}
                     type="button"

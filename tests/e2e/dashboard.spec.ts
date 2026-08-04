@@ -62,6 +62,13 @@ test("@responsive shows the live permit intelligence overview", async ({ page })
   const overviewMapRegion = overviewMap.getByRole("region", {
     name: "Geographic map of project counts by Edmonton neighbourhood",
   });
+  const activeAreaCount = Number(await overviewMap.getAttribute("data-active-area-count"));
+  const neighbourhoodActivityList = page.locator("[data-neighbourhood-activity-list]");
+  await expect(neighbourhoodActivityList).toHaveAttribute(
+    "data-active-area-count",
+    String(activeAreaCount),
+  );
+  await expect(neighbourhoodActivityList.locator(":scope > a")).toHaveCount(activeAreaCount);
   expect((await overviewMapRegion.boundingBox())?.height).toBeGreaterThanOrEqual(300);
   await expect(
     overviewMap.getByText("zoom in to reveal individual projects", { exact: false }),
