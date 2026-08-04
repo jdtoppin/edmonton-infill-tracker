@@ -44,7 +44,7 @@ Updated: 2026-08-03
 - [x] Connect dashboard metrics, lifecycle milestones, import state, and warnings to live records.
 - [x] Build MapLibre map/list/split exploration with URL-backed filters, a real geographic basemap, clustering, and an explicit unavailable state.
 - [x] Build sortable/paginated project results and formula-safe filtered CSV export.
-- [x] Build project detail, evidence explanation, occupancy follow-up, source timeline, and admin-only raw view.
+- [x] Build project detail, evidence explanation, robust building-permit occupancy timing, occupancy follow-up, source timeline, and admin-only raw view.
 - [x] Build admin import, failed-record, review/correction, rules-preview, and evidence-backed health workflows.
 - [x] Add real-user navigation, role-aware administration, session-revoking logout, and safe application-update status/handoff.
 

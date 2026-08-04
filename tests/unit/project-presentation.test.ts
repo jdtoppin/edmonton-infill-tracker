@@ -85,6 +85,7 @@ describe("project read-model presentation", () => {
     const page = getPreviewProjectPage(filters, now);
     const markers = getPreviewProjectMarkers(filters, now);
     const detail = getPreviewProjectDetail("preview-ritchie-suite", now);
+    const developmentDetail = getPreviewProjectDetail("preview-bonnie-doon-semi", now);
     const dashboard = getPreviewDashboardOverview(now);
     const monthDashboard = getPreviewDashboardOverview(now, 30);
     const allTimeDashboard = getPreviewDashboardOverview(now, "all");
@@ -94,6 +95,14 @@ describe("project read-model presentation", () => {
     expect(markers.markers).toHaveLength(1);
     expect(detail?.dataMode).toBe("preview");
     expect(detail?.timeline[0]?.source.recordUrl).toBeNull();
+    expect(detail?.timeline[0]?.occupancyEstimate).toMatchObject({
+      basis: "PLANNING_BASELINE",
+      typicalDays: 548,
+      maxComparisonDays: 730,
+      occupancyCount: 0,
+    });
+    expect(developmentDetail?.timeline[0]?.milestoneType).toBe("DEVELOPMENT_PERMIT");
+    expect(developmentDetail?.timeline[0]?.occupancyEstimate).toBeNull();
     expect(
       dashboard.neighbourhoodBreakdown.every(
         (area) => area.latitude !== null && area.longitude !== null,

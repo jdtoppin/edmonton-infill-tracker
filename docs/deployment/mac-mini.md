@@ -178,7 +178,7 @@ After reading the release notes and confirming CI passed, update with one comman
 ./scripts/infill update
 ```
 
-It first confirms Funnel is off, refuses a dirty checkout, creates and verifies a backup, fast-forwards only, and rebuilds while the current app remains available. It then stops `caddy`, `web`, `worker`, and `scheduler`, leaves PostgreSQL running, applies migrations, confirms Funnel is still off, recreates services without deleting volumes, and checks local/Tailscale health. Review `./scripts/infill logs` afterward and exercise login plus one project view.
+It first confirms Funnel is off, refuses a dirty checkout, creates and verifies a backup, and fast-forwards only. The same guarded process then reloads the newly downloaded updater before it rebuilds, so old update instructions cannot run against new Compose definitions. The current app remains available during the rebuild. It then stops `caddy`, `web`, `worker`, and `scheduler`, leaves PostgreSQL running, applies migrations, confirms Funnel is still off, recreates services without deleting volumes, and checks local/Tailscale health. Review `./scripts/infill logs` afterward and exercise login plus one project view.
 
 Because reviewed support-component pins live in the repository, the same update command rebuilds the
 application, custom PostGIS image, and source-pinned Caddy image with the tested

@@ -31,6 +31,11 @@ export async function generateMetadata(): Promise<Metadata> {
     description:
       "Track Edmonton permit activity and find likely residential infill projects earlier.",
     applicationName: "Edmonton Infill Tracker",
+    icons: {
+      icon: [{ url: "/favicon.png", type: "image/png", sizes: "64x64" }],
+      shortcut: "/favicon.png",
+      apple: [{ url: "/apple-touch-icon.png", type: "image/png", sizes: "180x180" }],
+    },
     openGraph: {
       type: "website",
       siteName: "Edmonton Infill Tracker",

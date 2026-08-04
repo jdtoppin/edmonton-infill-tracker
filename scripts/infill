@@ -222,6 +222,47 @@ acquire_operator_lock() {
   chmod 0600 "$operator_lock_dir/pid"
 }
 
+prepare_operator_update_resume() {
+  target_sha=$1
+  [ "$operator_lock_held" -eq 1 ] ||
+    die "the guarded update lock is not held."
+  [ -f "$operator_lock_dir/pid" ] ||
+    die "the guarded update lock lost its ownership record."
+
+  lock_pid=""
+  IFS= read -r lock_pid <"$operator_lock_dir/pid" || true
+  [ "$lock_pid" = "$$" ] ||
+    die "the guarded update lock changed owners before the update could resume."
+
+  printf '%s\n%s\n%s\n' "$$" "update-resume-v1" "$target_sha" >"$operator_lock_dir/pid"
+  chmod 0600 "$operator_lock_dir/pid"
+}
+
+# Keep this v1 handoff compatible in future updater revisions. The already-running version uses
+# same-PID exec so newly downloaded code, rather than stale pre-fetch logic, completes the update.
+resume_operator_update_lock() {
+  target_sha=$1
+  [ -f "$operator_lock_dir/pid" ] ||
+    die "the guarded update cannot resume because its lock is missing. Rerun './scripts/infill update'."
+
+  lock_pid=""
+  resume_protocol=""
+  locked_target_sha=""
+  {
+    IFS= read -r lock_pid || true
+    IFS= read -r resume_protocol || true
+    IFS= read -r locked_target_sha || true
+  } <"$operator_lock_dir/pid"
+
+  [ "$lock_pid" = "$$" ] ||
+    die "the guarded update cannot resume in a different process. Rerun './scripts/infill update'."
+  operator_lock_held=1
+  [ "$resume_protocol" = "update-resume-v1" ] ||
+    die "the guarded update resume protocol is invalid. Rerun './scripts/infill update'."
+  [ "$locked_target_sha" = "$target_sha" ] ||
+    die "the guarded update target changed before it could resume. Rerun './scripts/infill update'."
+}
+
 validate_civil_date() {
   date_label=$1
   date_value=$2
@@ -290,7 +331,11 @@ case "$command_name" in
     [ "$#" -eq 0 ] || die "install takes no arguments."
     exec sh "$script_dir/install-mac.sh"
     ;;
-  status|start|stop|restart|update|import|logs|backup|bootstrap-admin)
+  status|start|stop|restart|update|import|logs|backup|bootstrap-admin|__update-after-fast-forward)
+    if [ "$command_name" = "__update-after-fast-forward" ]; then
+      [ "$#" -eq 1 ] || die "the guarded update resume request is invalid."
+      resume_operator_update_lock "$1"
+    fi
     command -v docker >/dev/null 2>&1 || die "Docker CLI is unavailable."
     docker compose version >/dev/null 2>&1 || die "Docker Compose v2 is unavailable."
     validate_private_env
@@ -336,6 +381,21 @@ case "$command_name" in
         esac
         [ "${#app_build_sha}" -eq 40 ] ||
           die "the updated Git revision is not a full commit SHA."
+        sh -n "$script_dir/infill" ||
+          die "the updated operator command is invalid; services were not changed."
+        prepare_operator_update_resume "$app_build_sha"
+        exec sh "$script_dir/infill" __update-after-fast-forward "$app_build_sha"
+        die "the updated operator command could not be resumed. Rerun './scripts/infill update'."
+        ;;
+      __update-after-fast-forward)
+        app_build_sha=$1
+        validate_update_checkout
+        [ -z "$(git status --porcelain)" ] ||
+          die "the repository changed while the guarded update was resuming. Rerun './scripts/infill update'."
+        current_build_sha=$(git rev-parse --verify HEAD 2>/dev/null) ||
+          die "the updated Git revision could not be reverified."
+        [ "$current_build_sha" = "$app_build_sha" ] ||
+          die "the checked-out revision changed while the guarded update was resuming. Rerun './scripts/infill update'."
         APP_BUILD_SHA="$app_build_sha" docker compose build --pull
         docker compose stop caddy web worker scheduler
         if ! docker compose run --rm migrate; then
