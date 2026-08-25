@@ -42,8 +42,6 @@ describe.skipIf(!hasTestDatabase)("civic address reconciliation", () => {
   let fultonPermitId: string;
   let goldBarPermitId: string;
   const neighbourhoodIds: string[] = [];
-  const addressIds: string[] = [];
-  const projectIds: string[] = [];
 
   beforeAll(async () => {
     db = await getDb();
@@ -104,8 +102,6 @@ describe.skipIf(!hasTestDatabase)("civic address reconciliation", () => {
         },
       }),
     ]);
-    addressIds.push(legacyFultonAddress.id, legacyGoldBarAddress.id);
-
     const oldProject = await db.project.create({
       data: {
         projectKey: oldProjectKey,
@@ -120,7 +116,6 @@ describe.skipIf(!hasTestDatabase)("civic address reconciliation", () => {
       },
     });
     oldProjectId = oldProject.id;
-    projectIds.push(oldProject.id);
 
     const [fultonPermit, goldBarPermit] = await Promise.all([
       db.permitEvent.create({
@@ -186,10 +181,10 @@ describe.skipIf(!hasTestDatabase)("civic address reconciliation", () => {
 
   afterAll(async () => {
     await db.project.deleteMany({
-      where: { id: { in: projectIds } },
+      where: { neighbourhoodId: { in: neighbourhoodIds } },
     });
     await db.permitEvent.deleteMany({ where: { sourceProvider: provider } });
-    await db.address.deleteMany({ where: { id: { in: addressIds } } });
+    await db.address.deleteMany({ where: { neighbourhoodId: { in: neighbourhoodIds } } });
     await db.neighbourhood.deleteMany({ where: { id: { in: neighbourhoodIds } } });
   });
 
@@ -199,8 +194,6 @@ describe.skipIf(!hasTestDatabase)("civic address reconciliation", () => {
     if (!fulton.projectId || !goldBar.projectId) {
       throw new Error("Synthetic civic permits were not matched.");
     }
-    projectIds.push(fulton.projectId, goldBar.projectId);
-
     expect(fulton.disposition).toBe("created");
     expect(goldBar.disposition).toBe("created");
     expect(fulton.projectId).not.toBe(goldBar.projectId);
@@ -238,7 +231,6 @@ describe.skipIf(!hasTestDatabase)("civic address reconciliation", () => {
         }),
       }),
     ]);
-    addressIds.push(...repaired.map(({ address }) => address.id));
 
     await expect(
       db.project.findUniqueOrThrow({ where: { id: oldProjectId } }),
@@ -257,7 +249,6 @@ describe.skipIf(!hasTestDatabase)("civic address reconciliation", () => {
         neighbourhoodId: fultonNeighbourhoodId,
       },
     });
-    addressIds.push(incompleteAddress.id);
     const incompleteProject = await db.project.create({
       data: {
         projectKey: `legacy-incomplete-project:${suffix}`,
@@ -271,7 +262,6 @@ describe.skipIf(!hasTestDatabase)("civic address reconciliation", () => {
         confidenceExplanation: { summary: "Incomplete legacy address", factors: [] },
       },
     });
-    projectIds.push(incompleteProject.id);
     const incompletePermit = await db.permitEvent.create({
       data: {
         sourceProvider: provider,
@@ -345,7 +335,6 @@ describe.skipIf(!hasTestDatabase)("civic address reconciliation", () => {
         neighbourhoodId: fultonNeighbourhoodId,
       },
     });
-    addressIds.push(legacyAddress.id);
     const legacyProject = await db.project.create({
       data: {
         projectKey: `legacy-comma-unit-project:${suffix}`,
@@ -359,7 +348,6 @@ describe.skipIf(!hasTestDatabase)("civic address reconciliation", () => {
         confidenceExplanation: { summary: "Legacy comma-prefixed unit", factors: [] },
       },
     });
-    projectIds.push(legacyProject.id);
     const permit = await db.permitEvent.create({
       data: {
         sourceProvider: provider,
@@ -384,7 +372,6 @@ describe.skipIf(!hasTestDatabase)("civic address reconciliation", () => {
 
     const matched = await matchPermitEvent(db, permit.id);
     if (!matched.projectId) throw new Error("Synthetic condo permit was not matched.");
-    projectIds.push(matched.projectId);
 
     expect(matched).toMatchObject({ disposition: "created" });
     const repairedPermit = await db.permitEvent.findUniqueOrThrow({
@@ -405,7 +392,6 @@ describe.skipIf(!hasTestDatabase)("civic address reconciliation", () => {
         unitNumber: "317",
       },
     });
-    addressIds.push(repairedPermit.address.id);
     await expect(
       db.project.findUniqueOrThrow({ where: { id: legacyProject.id } }),
     ).resolves.toMatchObject({
@@ -419,6 +405,8 @@ describe.skipIf(!hasTestDatabase)("civic address reconciliation", () => {
     const normalizedAddress = "5215 101A AVE NW";
     const latitude = 53.541947022;
     const longitude = -113.420761618;
+    const persistedLatitude = Number(latitude.toFixed(6));
+    const persistedLongitude = Number(longitude.toFixed(6));
     const legacyAddress = await db.address.create({
       data: {
         rawSourceAddress: rawAddress,
@@ -428,7 +416,6 @@ describe.skipIf(!hasTestDatabase)("civic address reconciliation", () => {
         neighbourhoodId: fultonNeighbourhoodId,
       },
     });
-    addressIds.push(legacyAddress.id);
     const legacyProject = await db.project.create({
       data: {
         projectKey: `legacy-5215-101a-project:${suffix}`,
@@ -442,7 +429,6 @@ describe.skipIf(!hasTestDatabase)("civic address reconciliation", () => {
         confidenceExplanation: { summary: "Legacy street-wide project", factors: [] },
       },
     });
-    projectIds.push(legacyProject.id);
 
     const permits = await Promise.all([
       db.permitEvent.create({
@@ -578,8 +564,8 @@ describe.skipIf(!hasTestDatabase)("civic address reconciliation", () => {
           ({ address, addressNormalizationVersion, projectMatchStatus }) =>
             address.normalizedStreetAddress === normalizedAddress &&
             address.unitNumber === null &&
-            Number(address.latitude) === latitude &&
-            Number(address.longitude) === longitude &&
+            Number(address.latitude) === persistedLatitude &&
+            Number(address.longitude) === persistedLongitude &&
             addressNormalizationVersion === 2 &&
             projectMatchStatus === ProjectMatchStatus.MATCHED,
         ),
@@ -587,8 +573,6 @@ describe.skipIf(!hasTestDatabase)("civic address reconciliation", () => {
 
       const correctedProjectId = repaired[0]?.projectEvent?.projectId;
       if (!correctedProjectId) throw new Error("Corrected civic project was not created.");
-      projectIds.push(correctedProjectId);
-      addressIds.push(repaired[0]!.address.id);
       await expect(
         db.project.findUniqueOrThrow({
           where: { id: correctedProjectId },
@@ -605,8 +589,8 @@ describe.skipIf(!hasTestDatabase)("civic address reconciliation", () => {
         where: { id: correctedProjectId },
         select: { address: { select: { latitude: true, longitude: true } } },
       });
-      expect(Number(correctedProject.address.latitude)).toBe(latitude);
-      expect(Number(correctedProject.address.longitude)).toBe(longitude);
+      expect(Number(correctedProject.address.latitude)).toBe(persistedLatitude);
+      expect(Number(correctedProject.address.longitude)).toBe(persistedLongitude);
       await expect(
         db.project.findUniqueOrThrow({ where: { id: legacyProject.id } }),
       ).resolves.toMatchObject({
