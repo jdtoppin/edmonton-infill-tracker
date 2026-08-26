@@ -243,17 +243,21 @@ export function OverviewDashboard({
                 <h2>Neighbourhood activity</h2>
               </div>
             </div>
-            {data.neighbourhoodBreakdown.length === 0 ? (
-              <p className="text-sm text-[var(--muted)]">
-                Neighbourhood totals will appear after projects are grouped.
-              </p>
-            ) : (
-              <>
-                <div
-                  className="grid max-h-[32rem] gap-4 overflow-y-auto pr-1 sm:grid-cols-2 xl:grid-cols-1"
-                  data-neighbourhood-activity-list
-                  data-active-area-count={data.neighbourhoodBreakdown.length}
-                >
+            <div
+              className={
+                data.neighbourhoodBreakdown.length > 0
+                  ? "grid max-h-[32rem] gap-4 overflow-y-auto pr-1 sm:grid-cols-2 xl:grid-cols-1"
+                  : undefined
+              }
+              data-neighbourhood-activity-list
+              data-active-area-count={data.neighbourhoodBreakdown.length}
+            >
+              {data.neighbourhoodBreakdown.length === 0 ? (
+                <p className="text-sm text-[var(--muted)]">
+                  Neighbourhood totals will appear after projects are grouped.
+                </p>
+              ) : (
+                <>
                   {data.neighbourhoodBreakdown.map((area) => (
                     <Link
                       key={area.id}
@@ -279,13 +283,13 @@ export function OverviewDashboard({
                       </div>
                     </Link>
                   ))}
-                </div>
-                {data.neighbourhoodBreakdown.length > 6 && (
-                  <p className="mt-3 mb-0 text-[11px] text-[var(--muted)]">
-                    Scroll the ranked list to see every active neighbourhood in this period.
-                  </p>
-                )}
-              </>
+                </>
+              )}
+            </div>
+            {data.neighbourhoodBreakdown.length > 6 && (
+              <p className="mt-3 mb-0 text-[11px] text-[var(--muted)]">
+                Scroll the ranked list to see every active neighbourhood in this period.
+              </p>
             )}
           </Card>
         </div>

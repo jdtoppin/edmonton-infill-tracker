@@ -14,6 +14,7 @@ import type {
 } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { EDMONTON_CENTER, resolveMapStyle } from "@/components/maps/map-style";
+import { configureMapLibreWorker } from "@/components/maps/maplibre-worker";
 import {
   addCurrentNeighbourhoodLabelOverlay,
   loadCurrentEdmontonNeighbourhoods,
@@ -287,6 +288,7 @@ export function ProjectMap({
       try {
         const maplibre = await import("maplibre-gl");
         if (cancelled) return;
+        configureMapLibreWorker(maplibre);
         setRuntimeStatus("loading");
         setBasemapStatus("loading");
         if (!document.createElement("canvas").getContext("webgl2")) {

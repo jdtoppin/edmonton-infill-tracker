@@ -16,6 +16,7 @@ import {
   EDMONTON_COORDINATE_LIMITS,
   resolveMapStyle,
 } from "@/components/maps/map-style";
+import { configureMapLibreWorker } from "@/components/maps/maplibre-worker";
 import {
   addCurrentNeighbourhoodLabelOverlay,
   loadCurrentEdmontonNeighbourhoods,
@@ -266,6 +267,7 @@ export function NeighbourhoodActivityMap({
       try {
         const maplibre = await import("maplibre-gl");
         if (cancelled) return;
+        configureMapLibreWorker(maplibre);
         if (!document.createElement("canvas").getContext("webgl2")) {
           setMapState("unsupported");
           return;

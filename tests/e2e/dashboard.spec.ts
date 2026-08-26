@@ -69,6 +69,14 @@ test("@responsive shows the live permit intelligence overview", async ({ page })
     String(activeAreaCount),
   );
   await expect(neighbourhoodActivityList.locator(":scope > a")).toHaveCount(activeAreaCount);
+  if (activeAreaCount === 0) {
+    await expect(
+      neighbourhoodActivityList.getByText(
+        "Neighbourhood totals will appear after projects are grouped.",
+        { exact: true },
+      ),
+    ).toBeVisible();
+  }
   expect((await overviewMapRegion.boundingBox())?.height).toBeGreaterThanOrEqual(300);
   await expect(
     overviewMap.getByText("zoom in to reveal individual projects", { exact: false }),
