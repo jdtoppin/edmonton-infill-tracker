@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 
-ARG CADDY_GO_VERSION=1.26.5
+ARG CADDY_GO_VERSION=1.26.7
 
 FROM golang:${CADDY_GO_VERSION}-alpine3.24 AS builder
 

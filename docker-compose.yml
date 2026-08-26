@@ -136,7 +136,7 @@ services:
       context: ./deploy/caddy
       dockerfile: Dockerfile
       args:
-        CADDY_GO_VERSION: ${CADDY_GO_VERSION:-1.26.5}
+        CADDY_GO_VERSION: ${CADDY_GO_VERSION:-1.26.7}
     environment:
       SITE_ADDRESS: ${SITE_ADDRESS:-:80}
       UPSTREAM_FORWARDED_PROTO: ${UPSTREAM_FORWARDED_PROTO:-http}
