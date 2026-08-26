@@ -339,20 +339,44 @@ describe("support-component update policy", () => {
       "CVE-2026-32283",
       "CVE-2026-33811",
       "CVE-2026-33814",
+      "CVE-2026-33818",
       "CVE-2026-39820",
+      "CVE-2026-39821",
       "CVE-2026-39822",
       "CVE-2026-39836",
       "CVE-2026-42499",
       "CVE-2026-42504",
+      "CVE-2026-56853",
+      "CVE-2026-56858",
+      "CVE-2026-56859",
+      "CVE-2026-56860",
+      "CVE-2026-56862",
     ];
     const entries = ignoreFile.split(/^  - id: /m).slice(1);
 
+    expect(ignoreFile).toContain("official gosu 1.19 amd64 binary");
+    expect(ignoreFile).toContain(
+      "52c8749d0142edd234e9d6bd5237dff2d81e71f43537e2f4f66f75dd4b243dd0",
+    );
+    expect(ignoreFile).toContain("govulncheck-with-excludes.sh reachability scan on 2026-08-25");
     expect(entries.map((entry) => entry.match(/^([^\n]+)/)?.[1])).toEqual(expectedIds);
     expect(entries).toHaveLength(expectedIds.length);
     for (const entry of entries) {
       expect(entry).toContain('paths:\n      - "usr/local/bin/gosu"');
       expect(entry).toContain("expired_at: 2026-09-15");
       expect(entry).toContain("statement:");
+    }
+    const newReachabilityEvidence = {
+      "CVE-2026-33818": "encoding/asn1.Unmarshal",
+      "CVE-2026-39821": "network or IDNA-processing",
+      "CVE-2026-56853": "net/http or HTTP/2",
+      "CVE-2026-56858": "html/template",
+      "CVE-2026-56859": "encoding/xml",
+      "CVE-2026-56860": "net/url",
+      "CVE-2026-56862": "crypto/tls",
+    };
+    for (const [id, evidence] of Object.entries(newReachabilityEvidence)) {
+      expect(entries.find((entry) => entry.startsWith(id))).toContain(evidence);
     }
 
     expect(ci.match(/trivyignores:/g)).toHaveLength(1);
