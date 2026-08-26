@@ -237,40 +237,59 @@ export function OverviewDashboard({
           <Card className="p-5">
             <div className="section-head">
               <div>
-                <div className="eyebrow">{data.range.windowLabel} · Core infill area</div>
+                <div className="eyebrow">
+                  {data.range.windowLabel} · {data.neighbourhoodBreakdown.length} active core areas
+                </div>
                 <h2>Neighbourhood activity</h2>
               </div>
             </div>
-            {data.neighbourhoodBreakdown.length === 0 ? (
-              <p className="text-sm text-[var(--muted)]">
-                Neighbourhood totals will appear after projects are grouped.
+            <div
+              className={
+                data.neighbourhoodBreakdown.length > 0
+                  ? "grid max-h-[32rem] gap-4 overflow-y-auto pr-1 sm:grid-cols-2 xl:grid-cols-1"
+                  : undefined
+              }
+              data-neighbourhood-activity-list
+              data-active-area-count={data.neighbourhoodBreakdown.length}
+            >
+              {data.neighbourhoodBreakdown.length === 0 ? (
+                <p className="text-sm text-[var(--muted)]">
+                  Neighbourhood totals will appear after projects are grouped.
+                </p>
+              ) : (
+                <>
+                  {data.neighbourhoodBreakdown.map((area) => (
+                    <Link
+                      key={area.id}
+                      href={projectsHref(data.range, {
+                        neighbourhood: area.cityId,
+                        view: "split",
+                        scope: "core",
+                      })}
+                      className="block rounded-md text-inherit no-underline transition-colors outline-none hover:bg-[#fbfcfa] focus-visible:ring-2 focus-visible:ring-[var(--teal)] focus-visible:ring-offset-2"
+                      aria-label={`Explore ${area.name}: ${area.count} ${area.count === 1 ? "project" : "projects"} in ${data.range.windowLabel.toLocaleLowerCase("en-CA")}`}
+                    >
+                      <div className="mb-1.5 flex items-center justify-between gap-3 text-xs">
+                        <strong className="text-[var(--spruce)]">{area.name}</strong>
+                        <span className="text-[var(--muted)]">{area.count}</span>
+                      </div>
+                      <div className="h-2 overflow-hidden rounded-full bg-[#e9edeb]">
+                        <span
+                          className="block h-full rounded-full bg-[var(--teal)]"
+                          style={{
+                            width: `${Math.max(4, (area.count / maxNeighbourhood) * 100)}%`,
+                          }}
+                        />
+                      </div>
+                    </Link>
+                  ))}
+                </>
+              )}
+            </div>
+            {data.neighbourhoodBreakdown.length > 6 && (
+              <p className="mt-3 mb-0 text-[11px] text-[var(--muted)]">
+                Scroll the ranked list to see every active neighbourhood in this period.
               </p>
-            ) : (
-              <div className="space-y-4">
-                {data.neighbourhoodBreakdown.slice(0, 6).map((area) => (
-                  <Link
-                    key={area.id}
-                    href={projectsHref(data.range, {
-                      neighbourhood: area.cityId,
-                      view: "split",
-                      scope: "core",
-                    })}
-                    className="block rounded-md text-inherit no-underline transition-colors outline-none hover:bg-[#fbfcfa] focus-visible:ring-2 focus-visible:ring-[var(--teal)] focus-visible:ring-offset-2"
-                    aria-label={`Explore ${area.name}: ${area.count} ${area.count === 1 ? "project" : "projects"} in ${data.range.windowLabel.toLocaleLowerCase("en-CA")}`}
-                  >
-                    <div className="mb-1.5 flex items-center justify-between gap-3 text-xs">
-                      <strong className="text-[var(--spruce)]">{area.name}</strong>
-                      <span className="text-[var(--muted)]">{area.count}</span>
-                    </div>
-                    <div className="h-2 overflow-hidden rounded-full bg-[#e9edeb]">
-                      <span
-                        className="block h-full rounded-full bg-[var(--teal)]"
-                        style={{ width: `${Math.max(4, (area.count / maxNeighbourhood) * 100)}%` }}
-                      />
-                    </div>
-                  </Link>
-                ))}
-              </div>
             )}
           </Card>
         </div>

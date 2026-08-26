@@ -156,7 +156,7 @@ export default async function ProjectsPage({
         {needsMap && markerResult.missingCoordinateCount > 0 && (
           <p className="mt-3 text-xs text-[var(--muted)]">
             {markerResult.missingCoordinateCount.toLocaleString("en-CA")} matching projects do not
-            have map coordinates but remain available in List view.
+            have usable Edmonton map coordinates but remain available in List view.
           </p>
         )}
 

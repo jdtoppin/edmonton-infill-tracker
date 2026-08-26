@@ -1,3 +1,6 @@
+# The official gosu 1.19 amd64 binary (SHA-256 52c8749d0142edd234e9d6bd5237dff2d81e71f43537e2f4f66f75dd4b243dd0)
+# passed upstream's govulncheck-with-excludes.sh reachability scan on 2026-08-25.
+# Keep every exception path-scoped and short-lived so new findings still fail CI.
 vulnerabilities:
   - id: CVE-2025-61726
     paths:
@@ -49,11 +52,21 @@ vulnerabilities:
       - "usr/local/bin/gosu"
     expired_at: 2026-09-15
     statement: "gosu 1.19 does not invoke the affected Go standard-library functionality; re-audit against upstream SECURITY.md before expiry."
+  - id: CVE-2026-33818
+    paths:
+      - "usr/local/bin/gosu"
+    expired_at: 2026-09-15
+    statement: "gosu 1.19 does not import or call encoding/asn1.Unmarshal; re-audit against upstream SECURITY.md before expiry."
   - id: CVE-2026-39820
     paths:
       - "usr/local/bin/gosu"
     expired_at: 2026-09-15
     statement: "gosu 1.19 does not invoke the affected Go standard-library functionality; re-audit against upstream SECURITY.md before expiry."
+  - id: CVE-2026-39821
+    paths:
+      - "usr/local/bin/gosu"
+    expired_at: 2026-09-15
+    statement: "gosu 1.19 has no network or IDNA-processing code path; re-audit against upstream SECURITY.md before expiry."
   - id: CVE-2026-39822
     paths:
       - "usr/local/bin/gosu"
@@ -74,3 +87,28 @@ vulnerabilities:
       - "usr/local/bin/gosu"
     expired_at: 2026-09-15
     statement: "gosu 1.19 does not invoke the affected Go standard-library functionality; re-audit against upstream SECURITY.md before expiry."
+  - id: CVE-2026-56853
+    paths:
+      - "usr/local/bin/gosu"
+    expired_at: 2026-09-15
+    statement: "gosu 1.19 has no net/http or HTTP/2 code path; re-audit against upstream SECURITY.md before expiry."
+  - id: CVE-2026-56858
+    paths:
+      - "usr/local/bin/gosu"
+    expired_at: 2026-09-15
+    statement: "gosu 1.19 does not import or execute html/template; re-audit against upstream SECURITY.md before expiry."
+  - id: CVE-2026-56859
+    paths:
+      - "usr/local/bin/gosu"
+    expired_at: 2026-09-15
+    statement: "gosu 1.19 does not import or execute encoding/xml; re-audit against upstream SECURITY.md before expiry."
+  - id: CVE-2026-56860
+    paths:
+      - "usr/local/bin/gosu"
+    expired_at: 2026-09-15
+    statement: "gosu 1.19 does not import or execute net/url; re-audit against upstream SECURITY.md before expiry."
+  - id: CVE-2026-56862
+    paths:
+      - "usr/local/bin/gosu"
+    expired_at: 2026-09-15
+    statement: "gosu 1.19 has no crypto/tls code path; re-audit against upstream SECURITY.md before expiry."

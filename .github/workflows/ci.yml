@@ -291,8 +291,15 @@ jobs:
           set -euo pipefail
           expected_npm=$(sed -n 's/^ARG NPM_VERSION=//p' Dockerfile)
           expected_npm_brace_expansion=$(sed -n 's/^ARG NPM_BRACE_EXPANSION_VERSION=//p' Dockerfile)
-          printf '%s\n' "$expected_npm" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'
-          printf '%s\n' "$expected_npm_brace_expansion" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'
+          expected_npm_ip_address=$(sed -n 's/^ARG NPM_IP_ADDRESS_VERSION=//p' Dockerfile)
+          expected_npm_tar=$(sed -n 's/^ARG NPM_TAR_VERSION=//p' Dockerfile)
+          for version in \
+            "$expected_npm" \
+            "$expected_npm_brace_expansion" \
+            "$expected_npm_ip_address" \
+            "$expected_npm_tar"; do
+            printf '%s\n' "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'
+          done
           actual_npm=$(docker run --rm --entrypoint npm edmonton-infill-tracker:security-scan --version)
           [ "$actual_npm" = "$expected_npm" ] || {
             printf 'Expected npm %s, found %s\n' "$expected_npm" "$actual_npm" >&2
@@ -304,6 +311,22 @@ jobs:
           [ "$actual_npm_brace_expansion" = "$expected_npm_brace_expansion" ] || {
             printf 'Expected npm brace-expansion %s, found %s\n' \
               "$expected_npm_brace_expansion" "$actual_npm_brace_expansion" >&2
+            exit 1
+          }
+          actual_npm_ip_address=$(docker run --rm --entrypoint node \
+            edmonton-infill-tracker:security-scan \
+            --eval "process.stdout.write(require('/usr/local/lib/node_modules/npm/node_modules/ip-address/package.json').version)")
+          [ "$actual_npm_ip_address" = "$expected_npm_ip_address" ] || {
+            printf 'Expected npm ip-address %s, found %s\n' \
+              "$expected_npm_ip_address" "$actual_npm_ip_address" >&2
+            exit 1
+          }
+          actual_npm_tar=$(docker run --rm --entrypoint node \
+            edmonton-infill-tracker:security-scan \
+            --eval "process.stdout.write(require('/usr/local/lib/node_modules/npm/node_modules/tar/package.json').version)")
+          [ "$actual_npm_tar" = "$expected_npm_tar" ] || {
+            printf 'Expected npm tar %s, found %s\n' \
+              "$expected_npm_tar" "$actual_npm_tar" >&2
             exit 1
           }
 
