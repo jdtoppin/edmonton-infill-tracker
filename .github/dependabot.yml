@@ -72,7 +72,7 @@ updates:
         update-types:
           - version-update:semver-major
 
-# Node.js, npm, npm's bundled brace-expansion security override, Caddy core, Caddy's
+# Node.js, npm, npm's bundled security overrides, Caddy core, Caddy's
 # Go toolchain/x-text/gRPC security pins, and PostgreSQL are coordinated by the
 # support-component workflow. Remaining Caddy transitive Go dependencies are handled
 # here. Every proposal remains human-reviewed and undeployed until explicitly merged.

@@ -119,6 +119,16 @@ describe("support-component update policy", () => {
           JSON.stringify({ versions: { "5.0.9": {}, "5.0.10": {}, "6.0.0": {} } }),
         );
       }
+      if (url === "https://registry.npmjs.org/ip-address") {
+        return new Response(
+          JSON.stringify({ versions: { "10.3.1": {}, "10.3.2": {}, "11.0.0": {} } }),
+        );
+      }
+      if (url === "https://registry.npmjs.org/tar") {
+        return new Response(
+          JSON.stringify({ versions: { "7.5.21": {}, "7.5.22": {}, "8.0.0": {} } }),
+        );
+      }
       if (url === "https://proxy.golang.org/golang.org/x/text/@v/list") {
         return new Response("v0.39.0\nv0.40.0\n");
       }
@@ -147,6 +157,8 @@ describe("support-component update policy", () => {
         node: "22.23.2",
         npm: "12.0.2",
         npmBraceExpansion: "5.0.9",
+        npmIpAddress: "10.3.1",
+        npmTar: "7.5.21",
         caddyGo: "1.26.5",
         caddy: "2.11.4",
         caddyXText: "0.39.0",
@@ -157,6 +169,8 @@ describe("support-component update policy", () => {
     );
 
     expect(updates.npmBraceExpansion.latest).toBe("5.0.10");
+    expect(updates.npmIpAddress.latest).toBe("10.3.2");
+    expect(updates.npmTar.latest).toBe("7.5.22");
     expect(updates.caddyXText.latest).toBe("0.40.0");
     expect(updates.caddyGrpc.latest).toBe("1.83.0");
   });
@@ -194,6 +208,10 @@ describe("support-component update policy", () => {
     const npmBraceExpansionVersion = dockerfile.match(
       /^ARG NPM_BRACE_EXPANSION_VERSION=(\d+\.\d+\.\d+)$/m,
     )?.[1];
+    const npmIpAddressVersion = dockerfile.match(
+      /^ARG NPM_IP_ADDRESS_VERSION=(\d+\.\d+\.\d+)$/m,
+    )?.[1];
+    const npmTarVersion = dockerfile.match(/^ARG NPM_TAR_VERSION=(\d+\.\d+\.\d+)$/m)?.[1];
     const postgresVersion = postgresDockerfile.match(/^FROM postgres:(\d+\.\d+)-bookworm$/m)?.[1];
     const caddyGoVersion = caddyDockerfile.match(/^ARG CADDY_GO_VERSION=(\d+\.\d+\.\d+)$/m)?.[1];
     const caddyVersion = caddyGoMod.match(
@@ -209,6 +227,8 @@ describe("support-component update policy", () => {
     expect(nodeVersion).toBeTruthy();
     expect(npmVersion).toBeTruthy();
     expect(npmBraceExpansionVersion).toBeTruthy();
+    expect(npmIpAddressVersion).toBeTruthy();
+    expect(npmTarVersion).toBeTruthy();
     expect(postgresVersion).toBeTruthy();
     expect(caddyGoVersion).toBeTruthy();
     expect(caddyVersion).toBeTruthy();
@@ -225,11 +245,21 @@ describe("support-component update policy", () => {
     }
     expect(dockerfile).toContain(`npm install --global "npm@\${NPM_VERSION}"`);
     expect(dockerfile).toContain(`"brace-expansion@\${NPM_BRACE_EXPANSION_VERSION}"`);
+    expect(dockerfile).toContain(`"ip-address@\${NPM_IP_ADDRESS_VERSION}"`);
+    expect(dockerfile).toContain(`"tar@\${NPM_TAR_VERSION}"`);
     expect(dockerfile).toContain(
       "/usr/local/lib/node_modules/npm/node_modules/brace-expansion/package.json",
     );
+    expect(dockerfile).toContain(
+      "/usr/local/lib/node_modules/npm/node_modules/ip-address/package.json",
+    );
+    expect(dockerfile).toContain("/usr/local/lib/node_modules/npm/node_modules/tar/package.json");
     expect(ci).toContain("expected_npm_brace_expansion");
     expect(ci).toContain("actual_npm_brace_expansion");
+    expect(ci).toContain("expected_npm_ip_address");
+    expect(ci).toContain("actual_npm_ip_address");
+    expect(ci).toContain("expected_npm_tar");
+    expect(ci).toContain("actual_npm_tar");
     expect(compose).toContain(`CADDY_GO_VERSION:-${caddyGoVersion}`);
     expect(caddyDockerfile).toContain(`golang:\${CADDY_GO_VERSION}-alpine3.24`);
     expect(caddyDockerfile).toContain("GOTOOLCHAIN=local");
@@ -272,9 +302,13 @@ describe("support-component update policy", () => {
     expect(updaterScript).toContain('label: "Caddy google.golang.org/grpc"');
     expect(updaterScript).toContain('source: "go-module"');
     expect(updaterScript).toContain('label: "npm bundled brace-expansion"');
+    expect(updaterScript).toContain('label: "npm bundled ip-address"');
+    expect(updaterScript).toContain('label: "npm bundled tar"');
     expect(updaterScript).toContain(
       "`ARG NPM_BRACE_EXPANSION_VERSION=${npmBraceExpansionReplacement[0]}`",
     );
+    expect(updaterScript).toContain("`ARG NPM_IP_ADDRESS_VERSION=${npmIpAddressReplacement[0]}`");
+    expect(updaterScript).toContain("`ARG NPM_TAR_VERSION=${npmTarReplacement[0]}`");
     expect(ci).toContain("npm audit --audit-level=high");
     expect(ci).toContain("Container security");
     expect(ci).toContain("aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25");

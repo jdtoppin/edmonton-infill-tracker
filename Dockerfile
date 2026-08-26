@@ -3,32 +3,59 @@
 ARG NODE_VERSION=22.23.2
 ARG NPM_VERSION=12.0.2
 ARG NPM_BRACE_EXPANSION_VERSION=5.0.9
+ARG NPM_IP_ADDRESS_VERSION=10.5.0
+ARG NPM_TAR_VERSION=7.5.22
 
 FROM node:${NODE_VERSION}-bookworm-slim AS base
 ARG NPM_VERSION
 ARG NPM_BRACE_EXPANSION_VERSION
+ARG NPM_IP_ADDRESS_VERSION
+ARG NPM_TAR_VERSION
 WORKDIR /app
 
 ENV NEXT_TELEMETRY_DISABLED=1
 
-# The pinned npm release bundles a vulnerable brace-expansion version. Keep the
-# exact replacement below until an npm release carries the patched dependency itself.
+# The pinned npm release bundles vulnerable transitive dependency versions. Keep
+# these exact replacements until an npm release carries the patched versions itself.
 RUN apt-get update \
     && apt-get install --no-install-recommends -y ca-certificates openssl \
     && npm install --global "npm@${NPM_VERSION}" \
-    && printf '%s\n' "${NPM_BRACE_EXPANSION_VERSION}" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$' \
+    && for version in \
+        "${NPM_BRACE_EXPANSION_VERSION}" \
+        "${NPM_IP_ADDRESS_VERSION}" \
+        "${NPM_TAR_VERSION}"; do \
+        printf '%s\n' "${version}" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; \
+    done \
     && mkdir -p /tmp/npm-security-pins \
     && npm pack \
         --pack-destination /tmp/npm-security-pins \
         "brace-expansion@${NPM_BRACE_EXPANSION_VERSION}" \
+        "ip-address@${NPM_IP_ADDRESS_VERSION}" \
+        "tar@${NPM_TAR_VERSION}" \
     && rm -rf /usr/local/lib/node_modules/npm/node_modules/brace-expansion \
     && mkdir -p /usr/local/lib/node_modules/npm/node_modules/brace-expansion \
     && tar -xzf \
         "/tmp/npm-security-pins/brace-expansion-${NPM_BRACE_EXPANSION_VERSION}.tgz" \
         --strip-components=1 \
         -C /usr/local/lib/node_modules/npm/node_modules/brace-expansion \
+    && rm -rf /usr/local/lib/node_modules/npm/node_modules/ip-address \
+    && mkdir -p /usr/local/lib/node_modules/npm/node_modules/ip-address \
+    && tar -xzf \
+        "/tmp/npm-security-pins/ip-address-${NPM_IP_ADDRESS_VERSION}.tgz" \
+        --strip-components=1 \
+        -C /usr/local/lib/node_modules/npm/node_modules/ip-address \
+    && rm -rf /usr/local/lib/node_modules/npm/node_modules/tar \
+    && mkdir -p /usr/local/lib/node_modules/npm/node_modules/tar \
+    && tar -xzf \
+        "/tmp/npm-security-pins/tar-${NPM_TAR_VERSION}.tgz" \
+        --strip-components=1 \
+        -C /usr/local/lib/node_modules/npm/node_modules/tar \
     && NPM_BRACE_EXPANSION_VERSION="${NPM_BRACE_EXPANSION_VERSION}" node --eval \
         "const actual = require('/usr/local/lib/node_modules/npm/node_modules/brace-expansion/package.json').version; if (actual !== process.env.NPM_BRACE_EXPANSION_VERSION) process.exit(1)" \
+    && NPM_IP_ADDRESS_VERSION="${NPM_IP_ADDRESS_VERSION}" node --eval \
+        "const actual = require('/usr/local/lib/node_modules/npm/node_modules/ip-address/package.json').version; if (actual !== process.env.NPM_IP_ADDRESS_VERSION) process.exit(1)" \
+    && NPM_TAR_VERSION="${NPM_TAR_VERSION}" node --eval \
+        "const actual = require('/usr/local/lib/node_modules/npm/node_modules/tar/package.json').version; if (actual !== process.env.NPM_TAR_VERSION) process.exit(1)" \
     && npm cache clean --force \
     && rm -rf /tmp/npm-security-pins \
     && rm -rf /var/lib/apt/lists/*

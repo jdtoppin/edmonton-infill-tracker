@@ -27,6 +27,18 @@ const componentDefinitions = {
     packageName: "brace-expansion",
     versionParts: 3,
   },
+  npmIpAddress: {
+    label: "npm bundled ip-address",
+    source: "npm-package",
+    packageName: "ip-address",
+    versionParts: 3,
+  },
+  npmTar: {
+    label: "npm bundled tar",
+    source: "npm-package",
+    packageName: "tar",
+    versionParts: 3,
+  },
   caddyGo: {
     label: "Caddy Go toolchain",
     source: "docker",
@@ -155,6 +167,12 @@ export async function readPinnedVersions() {
       /^ARG NPM_BRACE_EXPANSION_VERSION=(\d+\.\d+\.\d+)$/gm,
       "Dockerfile",
     ),
+    npmIpAddress: exactlyOneMatch(
+      dockerfile,
+      /^ARG NPM_IP_ADDRESS_VERSION=(\d+\.\d+\.\d+)$/gm,
+      "Dockerfile",
+    ),
+    npmTar: exactlyOneMatch(dockerfile, /^ARG NPM_TAR_VERSION=(\d+\.\d+\.\d+)$/gm, "Dockerfile"),
     caddyGo: exactlyOneMatch(
       caddyDockerfile,
       /^ARG CADDY_GO_VERSION=(\d+\.\d+\.\d+)$/gm,
@@ -395,6 +413,8 @@ export async function applyPinnedVersions(current, latest) {
   const nodeReplacement = [current.node, latest.node];
   const npmReplacement = [current.npm, latest.npm];
   const npmBraceExpansionReplacement = [current.npmBraceExpansion, latest.npmBraceExpansion];
+  const npmIpAddressReplacement = [current.npmIpAddress, latest.npmIpAddress];
+  const npmTarReplacement = [current.npmTar, latest.npmTar];
   const caddyGoReplacement = [current.caddyGo, latest.caddyGo];
   const caddyReplacement = [current.caddy, latest.caddy];
   const caddyXTextReplacement = [current.caddyXText, latest.caddyXText];
@@ -408,6 +428,16 @@ export async function applyPinnedVersions(current, latest) {
       [
         `ARG NPM_BRACE_EXPANSION_VERSION=${npmBraceExpansionReplacement[0]}`,
         `ARG NPM_BRACE_EXPANSION_VERSION=${npmBraceExpansionReplacement[1]}`,
+        1,
+      ],
+      [
+        `ARG NPM_IP_ADDRESS_VERSION=${npmIpAddressReplacement[0]}`,
+        `ARG NPM_IP_ADDRESS_VERSION=${npmIpAddressReplacement[1]}`,
+        1,
+      ],
+      [
+        `ARG NPM_TAR_VERSION=${npmTarReplacement[0]}`,
+        `ARG NPM_TAR_VERSION=${npmTarReplacement[1]}`,
         1,
       ],
     ]),
